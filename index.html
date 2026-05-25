@@ -90,7 +90,7 @@
           <div class="ball-pill"><span class="ico-ball"></span> <span class="ball-count">0</span> <span data-i18n="balls_suffix">Ball(s)</span></div>
         </div>
         <div class="coin-stage">
-          <div class="coin" id="theCoin"><span class="coin-face" id="coinFaceInit"></span></div>
+          <div class="coin" id="theCoin"></div>
         </div>
         <div class="coin-result" id="coinResult" data-i18n="flip_prompt">Flip the coin to attempt a catch!</div>
         <div class="enc-btns">
@@ -227,7 +227,7 @@
   // Boot
   load();
   applyStaticI18n();   // fill all [data-i18n] from the saved language
-  document.getElementById('coinFaceInit').innerHTML = coinFace('coin');
+  document.getElementById('theCoin').innerHTML = coinHTML('coin', 'tails');
   fillStaticIcons();
   updateHUD();
   renderShop();
