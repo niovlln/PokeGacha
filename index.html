@@ -46,6 +46,15 @@
       </div>
 
       <div style="padding:0 16px">
+        <button class="incense-btn" id="incenseBtn" onclick="useIncense()" style="display:none">
+          <span class="incense-ico" id="incenseIco"></span>
+          <span data-i18n="incense_use">Use Incense</span>
+          <span class="incense-count">×<span id="incenseBtnCount">0</span></span>
+        </button>
+        <div class="incense-active" id="incenseActive" style="display:none" data-i18n="incense_active_banner">Incense active — next encounter is a new Pokémon!</div>
+      </div>
+
+      <div style="padding:0 16px">
         <button class="grass-btn" id="grassBtn" onclick="onGrassTap()">
           <div style="font-size:52px;line-height:1;letter-spacing:4px">🌿🌿🌿</div>
           <div style="font-size:40px;line-height:1;letter-spacing:8px">🌿🌿</div>
@@ -237,6 +246,8 @@
   applyStaticI18n();   // fill all [data-i18n] from the saved language
   document.getElementById('theCoin').innerHTML = coinHTML('coin', 'tails');
   fillStaticIcons();
+  document.getElementById('incenseIco').innerHTML = incenseIcon(18);
+  if (typeof updateIncenseUI === 'function') updateIncenseUI();
   updateHUD();
   renderShop();
   renderSettings();
