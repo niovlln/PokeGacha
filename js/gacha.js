@@ -5,10 +5,38 @@ const ENC = {
   nextAt: 0,    // steps threshold for next encounter
   phase: 'walk', // 'walk' | 'encounter'
   wildPoke: null,
+  incenseActive: false, // one-shot: next roll is a random uncaptured common–rare
 };
 ENC.nextAt = nextEncAt();
 
 function nextEncAt() { return 4 + Math.floor(Math.random() * 23); }
+
+// ---- Incense: activate (next encounter = uncaptured common–rare) ----
+function incenseCount() { return G.bag['incense'] || 0; }
+
+function useIncense() {
+  if (ENC.phase !== 'walk') { toast(t('incense_busy')); return; }
+  if (incenseCount() <= 0) { toast(t('incense_none')); return; }
+  if (ENC.incenseActive) { toast(t('incense_already')); return; }
+  G.bag['incense'] = incenseCount() - 1;
+  ENC.incenseActive = true;
+  save(); updateHUD(); updateIncenseUI();
+  toast(t('incense_on'));
+}
+
+// Show/refresh the incense button + active banner on the gacha screen.
+function updateIncenseUI() {
+  const btn = document.getElementById('incenseBtn');
+  const banner = document.getElementById('incenseActive');
+  if (btn) {
+    const n = incenseCount();
+    btn.style.display = n > 0 ? 'flex' : 'none';
+    const cnt = document.getElementById('incenseBtnCount');
+    if (cnt) cnt.textContent = n;
+    btn.disabled = ENC.incenseActive;
+  }
+  if (banner) banner.style.display = ENC.incenseActive ? 'block' : 'none';
+}
 
 // ---- Grass tap ----
 function onGrassTap() {
@@ -48,6 +76,14 @@ function pickRandom(pool) {
   return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
+// Incense reward: a random UNCAPTURED Pokémon in rarities 1–3 (common–rare).
+// Falls back to any common–rare if the player has already caught them all.
+function pickIncensePokemon() {
+  const pool = POKEMON.filter(p => p.rarity >= 1 && p.rarity <= 3);
+  const uncaught = pool.filter(p => !(G.collection[p.id] && G.collection[p.id].count > 0));
+  return pickRandom(uncaught.length ? uncaught : pool);
+}
+
 function pickLegendary() {
   const legendaries = POKEMON.filter(p => p.rarity === 5);
   const uncaught = legendaries.filter(p => !(G.collection[p.id] && G.collection[p.id].count > 0));
@@ -63,6 +99,13 @@ function pickLegendary() {
 }
 
 function rollPokemon() {
+  // INCENSE: one-shot override — next encounter is a random UNCAPTURED Pokémon
+  // in the common–rare range (rarities 1–3). Consumed here.
+  if (ENC.incenseActive) {
+    ENC.incenseActive = false;
+    return pickIncensePokemon();
+  }
+
   // Odds 1: pity reached → 80% Epic, 20% Legendary (no longer a flat guarantee).
   if (G.pity >= 80) {
     if (Math.random() < 0.20) return pickLegendary();
@@ -90,6 +133,8 @@ function triggerEncounter() {
   ENC.wildPoke = poke;
 
   // (Pity now advances on successful CAPTURE, not on encounter — see catchPokemon.)
+  // rollPokemon() consumes any active incense; refresh its button/banner.
+  updateIncenseUI();
 
   ENC.clicks = 0;
   ENC.nextAt = nextEncAt();
