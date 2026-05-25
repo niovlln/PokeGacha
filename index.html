@@ -81,6 +81,7 @@
           <div class="wild-name-plate" id="wildName"></div>
           <div class="wild-rarity-plate" id="wildRarity"></div>
           <div id="wildTypes" style="margin-top:4px"></div>
+          <div id="wildOwned" class="wild-owned-plate" style="display:none"></div>
         </div>
       </div>
 
@@ -116,6 +117,13 @@
         <button class="filter-btn" id="filter-rare" onclick="setCollFilter('rare')" data-i18n="f_rare">Rare</button>
         <button class="filter-btn" id="filter-uncommon" onclick="setCollFilter('uncommon')" data-i18n="f_uncommon">Uncom</button>
         <button class="filter-btn" id="filter-common" onclick="setCollFilter('common')" data-i18n="f_common">Common</button>
+      </div>
+
+      <!-- Capture-status filter -->
+      <div class="filter-row" id="statusRow" style="display:none">
+        <button class="filter-btn active" id="status-all" onclick="setCollStatus('all')" data-i18n="s_all">All</button>
+        <button class="filter-btn" id="status-caught" onclick="setCollStatus('caught')" data-i18n="s_caught">Caught</button>
+        <button class="filter-btn" id="status-uncaught" onclick="setCollStatus('uncaught')" data-i18n="s_uncaught">Uncaught</button>
       </div>
 
       <!-- Search bar (hidden until Pokémon are owned) -->
