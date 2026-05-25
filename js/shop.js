@@ -32,6 +32,19 @@ function renderShop() {
       </div>
     </div>
 
+    <!-- Incense -->
+    <div class="shop-item" onclick="buyIncense()" style="border-color:#c084fc33">
+      <div class="shop-item-icon">${incenseIcon(36)}</div>
+      <div style="flex:1">
+        <div class="shop-item-name" style="color:#c084fc">${t('incense_name')}</div>
+        <div class="shop-item-desc">${t('incense_desc')}</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+          <div class="shop-item-price">20,000 ${coinIcon()}</div>
+          ${incenseCount() > 0 ? `<div class="shop-owned" style="color:#c084fc">${t('owned_n', { n: incenseCount() })}</div>` : ''}
+        </div>
+      </div>
+    </div>
+
     <!-- How it works -->
     <div style="padding:4px 16px 16px">
       <div class="card2" style="font-size:12px;color:var(--muted);line-height:2.1">
@@ -61,6 +74,16 @@ function renderShop() {
       </div>
     </div>
   `;
+}
+
+function buyIncense() {
+  const cost = 20000;
+  if (G.coins < cost) { toast(t('need_coins', { n: cost.toLocaleString() })); return; }
+  G.coins -= cost;
+  G.bag['incense'] = (G.bag['incense'] || 0) + 1;
+  save(); updateHUD(); renderShop();
+  if (typeof updateIncenseUI === 'function') updateIncenseUI();
+  toast(t('incense_bought'));
 }
 
 function buyBall(qty) {
