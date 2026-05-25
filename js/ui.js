@@ -55,6 +55,19 @@ function coinHTML(front, back) {
     <div class="coin-side coin-back"><span class="coin-face">${coinFace(back)}</span></div>`;
 }
 // Generic single-glyph icons used in shop help text & danger zone.
+// Incense — gold dome + red dotted base, matching the game's incense sprite.
+function incenseIcon(size = 20) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" style="vertical-align:-3px;flex-shrink:0">
+    <ellipse cx="12" cy="4.4" rx="1.9" ry="1.7" fill="#f6c91e" stroke="#7a5a00" stroke-width=".7"/>
+    <path d="M4.5 13C4.5 8 7.5 5.5 12 5.5S19.5 8 19.5 13Z" fill="#f6c91e" stroke="#7a5a00" stroke-width="1"/>
+    <path d="M4.5 13C4.5 17.5 7.8 20 12 20S19.5 17.5 19.5 13Z" fill="#e83b3b" stroke="#7a1520" stroke-width="1"/>
+    <path d="M4.5 13H19.5" stroke="#7a1520" stroke-width=".8" opacity=".7"/>
+    <g fill="#9c1623">
+      <circle cx="8.3" cy="15" r="1.1"/><circle cx="12" cy="16" r="1.1"/><circle cx="15.7" cy="15" r="1.1"/>
+    </g>
+    <ellipse cx="9.4" cy="8.6" rx="1.5" ry="2" fill="#fff6c0" opacity=".5"/>
+  </svg>`;
+}
 function svgIcon(name, color = 'currentColor', size = 14) {
   const o = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex-shrink:0"`;
   const paths = {
