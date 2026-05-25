@@ -4,8 +4,8 @@
 // ============================================================
 //  CONFIG — paste your values from Supabase → Project Settings → API
 // ============================================================
-const SUPABASE_URL = 'https://tcohtkhnlftkjjdbnhxv.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjb2h0a2hubGZ0a2pqZGJuaHh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Nzc5NTUsImV4cCI6MjA5NTI1Mzk1NX0.DxlumzIysZ39_VNN5my1wfwRUp7kl-VtBpdUnu_cVM0';
+const SUPABASE_URL = 'https://YOUR-PROJECT-ref.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-PUBLIC-ANON-KEY';
 
 // Create the client (the global `supabase` comes from the CDN script in index.html).
 let sb = null;
@@ -84,6 +84,8 @@ function applySaveObject(obj) {
   G.lang  = (obj.lang === 'en' || obj.lang === 'id') ? obj.lang : G.lang;
   G.collection = obj.collection || {};
   G.bag = obj.bag || {};
+  // Enforce the same bounds as local loads (defense in depth).
+  if (typeof _validateState === 'function') _validateState();
 }
 
 // ---- Auth ------------------------------------------------------------------
@@ -105,6 +107,7 @@ async function signOutUser() {
   await sb.auth.signOut();
   currentUser = null;
   updateAuthUI();
+  if (typeof enforceLoginGate === 'function') enforceLoginGate();
 }
 
 // After login: merge local progress into the cloud save, apply, re-render.
@@ -119,6 +122,7 @@ async function onLoggedIn(user) {
   save();                 // write merged result to localStorage cache
   await pushCloudSave();  // and back up to cloud
   updateAuthUI();
+  if (typeof enforceLoginGate === 'function') enforceLoginGate();
   updateHUD(); applyStaticI18n();
   if (typeof renderCollection === 'function') renderCollection();
   if (typeof renderAchievements === 'function') renderAchievements();
@@ -135,10 +139,11 @@ async function initAuth() {
     }
     sb.auth.onAuthStateChange((_event, session) => {
       if (session && session.user) { if (!currentUser) onLoggedIn(session.user); }
-      else { currentUser = null; updateAuthUI(); }
+      else { currentUser = null; updateAuthUI(); if (typeof enforceLoginGate === 'function') enforceLoginGate(); }
     });
   } catch (e) { console.warn('initAuth error:', e); }
   updateAuthUI();
+  if (typeof enforceLoginGate === 'function') enforceLoginGate();
 }
 
 // ---- Feedback to cloud (replaces mailto) -----------------------------------
