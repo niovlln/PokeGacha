@@ -97,6 +97,12 @@ function updateHUD() {
   document.querySelectorAll('.ball-count').forEach(el => el.textContent = balls());
 }
 
+// Fill any static icon-placeholder spans with the same SVG icons used in the shop.
+function fillStaticIcons() {
+  document.querySelectorAll('.ico-coin').forEach(el => { el.innerHTML = coinIcon(15); });
+  document.querySelectorAll('.ico-ball').forEach(el => { el.innerHTML = pokeballIcon(15); });
+}
+
 function updatePityBar() {
   const bar = document.getElementById('pityBar');
   const label = document.getElementById('pityCount');
