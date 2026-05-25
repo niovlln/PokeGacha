@@ -46,6 +46,14 @@ function coinFace(kind, size = 46) {
   return wrap(`<circle cx="12" cy="12" r="9.5" fill="#ffe566" stroke="#8a6d00" stroke-width="1.6"/>
     <text x="12" y="16.5" text-anchor="middle" font-size="12" font-weight="900" fill="#8a6d00" font-family="Orbitron,monospace">P</text>`);
 }
+// Two-sided coin: gold front (heads) + darker back (tails), each on its own
+// 3D plane so the flip rotation alternates colors gold→dark→gold like a real coin.
+// `front`/`back` are coinFace() kinds. Back is pre-rotated 180° in CSS.
+function coinHTML(front, back) {
+  return `
+    <div class="coin-side coin-front"><span class="coin-face">${coinFace(front)}</span></div>
+    <div class="coin-side coin-back"><span class="coin-face">${coinFace(back)}</span></div>`;
+}
 // Generic single-glyph icons used in shop help text & danger zone.
 function svgIcon(name, color = 'currentColor', size = 14) {
   const o = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex-shrink:0"`;
