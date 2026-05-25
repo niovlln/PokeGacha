@@ -79,6 +79,7 @@ function svgIcon(name, color = 'currentColor', size = 14) {
     star:   `<path d="m12 3 2.6 5.6 6 .7-4.4 4.1 1.2 6L12 18.6 6.6 19.4l1.2-6L3.4 9.3l6-.7L12 3z"/>`,
     trash:  `<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14h12l1-14"/>`,
     check:  `<path d="M20 6 9 17l-5-5"/>`,
+    mail:   `<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>`,
   };
   return `<svg ${o}>${paths[name] || ''}</svg>`;
 }
@@ -232,6 +233,10 @@ function authMarkup(ctx) {
     <div style="display:flex;gap:8px">
       <button class="lang-btn active" style="flex:1" onclick="doSignIn('${ctx}')">${t('login')}</button>
       <button class="lang-btn" style="flex:1" onclick="doSignUp('${ctx}')">${t('signup')}</button>
+    </div>
+    <div style="text-align:center;margin-top:10px">
+      <a href="#" onclick="doForgotPassword('${ctx}');return false;"
+         style="font-size:12px;color:var(--muted);text-decoration:underline">${t('forgot_password')}</a>
     </div>`;
 }
 
@@ -244,14 +249,82 @@ function updateAuthUI() {
                       !(typeof cloudEnabled === 'function' && !cloudEnabled());
     // In gate mode we do NOT offer a "skip" button — login is required.
     const showSkip = loggedOut && !LOGIN_REQUIRED;
+    const loggedIn = (typeof currentUser !== 'undefined' && currentUser);
     modal.innerHTML =
       `<div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--gold);letter-spacing:1px;margin-bottom:14px;text-align:center">${t('auth_title')}</div>`
+      + (loggedIn ? `<div id="mailboxSection"></div>` : '')
       + (LOGIN_REQUIRED && loggedOut ? `<div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px;line-height:1.4">${t('login_required')}</div>` : '')
       + authMarkup('modal')
       + (showSkip ? `<button class="lang-btn" style="width:100%;margin-top:8px" onclick="closeAuthModal()">${t('auth_skip')}</button>` : '');
+    if (loggedIn) renderMailbox();
   }
   const btn = document.getElementById('accountBtn');
   if (btn) btn.style.display = 'flex';
+}
+
+// ---- Mailbox (developer gifts) ----
+let _pendingGifts = [];
+
+// Fetch unclaimed gifts and update the header badge.
+async function refreshMailbox() {
+  if (typeof fetchUnclaimedGifts !== 'function') return;
+  _pendingGifts = await fetchUnclaimedGifts();
+  const badge = document.getElementById('mailBadge');
+  if (badge) {
+    if (_pendingGifts.length > 0) {
+      badge.style.display = 'flex';
+      badge.textContent = _pendingGifts.length > 9 ? '9+' : String(_pendingGifts.length);
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+  // If the account modal is open, re-render its mailbox section.
+  if (document.getElementById('mailboxSection')) renderMailbox();
+}
+
+function _giftRewardLine(g) {
+  const parts = [];
+  if (g.coins)   parts.push(`${g.coins.toLocaleString()} ${coinIcon(13)}`);
+  if (g.balls)   parts.push(`${g.balls}× ${pokeballIcon(14)}`);
+  if (g.incense) parts.push(`${g.incense}× ${incenseIcon(14)}`);
+  return parts.join('&nbsp;&nbsp;');
+}
+
+function renderMailbox() {
+  const sec = document.getElementById('mailboxSection');
+  if (!sec) return;
+  if (!_pendingGifts.length) {
+    sec.innerHTML = `<div class="card2" style="margin-bottom:14px;text-align:center;font-size:12px;color:var(--muted)">
+      ${svgIcon('mail', 'var(--muted)', 15)} ${t('mail_empty')}</div>`;
+    return;
+  }
+  sec.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.5px;display:flex;align-items:center;gap:5px">
+      ${svgIcon('mail', '#ffd700', 14)} ${t('mailbox')} (${_pendingGifts.length})
+    </div>
+    ${_pendingGifts.map(g => `
+      <div class="card2" style="margin-bottom:8px">
+        <div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px">${g.title || t('gift_default_title')}</div>
+        ${g.message ? `<div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.4">${g.message}</div>` : ''}
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;flex-wrap:wrap;gap:2px">${_giftRewardLine(g)}</div>
+        <button class="lang-btn active" style="width:100%" onclick="onClaimGift(${g.id})">${t('gift_claim')}</button>
+      </div>`).join('')}`;
+}
+
+async function onClaimGift(giftId) {
+  const gift = _pendingGifts.find(g => g.id === giftId);
+  if (!gift) return;
+  const res = await claimGift(gift);
+  if (res.ok) {
+    toast(t('gift_claimed'));
+    updateHUD();
+    if (typeof updateIncenseUI === 'function') updateIncenseUI();
+  } else if (res.error === 'already') {
+    toast(t('gift_already'));
+  } else {
+    toast(res.error || 'Error');
+  }
+  await refreshMailbox(); // remove the claimed gift + update badge
 }
 
 // ---- LOGIN GATE ----
@@ -322,6 +395,52 @@ async function doSignIn(ctx) {
     if (error) { _authMsg(ctx, error.message); return; }
     if (data && data.user) { await onLoggedIn(data.user); closeAuthModal(); toast(t('login_ok')); }
   } catch (e) { _authMsg(ctx, (e && e.message) || String(e)); }
+}
+
+// ---- Forgot password ----
+async function doForgotPassword(ctx) {
+  const { email } = _authInputs(ctx);
+  if (typeof cloudEnabled !== 'function' || !cloudEnabled()) { _authMsg(ctx, t('auth_no_cloud')); return; }
+  if (!email) { _authMsg(ctx, t('forgot_need_email')); return; }
+  _authMsg(ctx, t('auth_working'), true);
+  try {
+    const { error } = await resetPassword(email);
+    if (error) { _authMsg(ctx, error.message); return; }
+    _authMsg(ctx, t('forgot_sent'), true);
+  } catch (e) { _authMsg(ctx, (e && e.message) || String(e)); }
+}
+
+// Shown when the player returns via a password-reset link.
+function showPasswordResetPrompt() {
+  const modal = document.getElementById('authModal');
+  if (modal) { modal.classList.remove('gated'); modal.classList.add('open'); }
+  const body = document.getElementById('authModalBody');
+  if (!body) return;
+  body.innerHTML = `
+    <div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--gold);letter-spacing:1px;margin-bottom:14px;text-align:center">${t('reset_title')}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.4;text-align:center">${t('reset_prompt')}</div>
+    <input id="newPass1" class="feedback-input" type="password" placeholder="${t('new_password')}" style="margin-bottom:8px" autocomplete="new-password">
+    <input id="newPass2" class="feedback-input" type="password" placeholder="${t('confirm_password')}" style="margin-bottom:8px" autocomplete="new-password">
+    <div id="resetMsg" style="font-size:12px;color:var(--accent);min-height:16px;margin-bottom:8px;line-height:1.3"></div>
+    <button class="lang-btn active" style="width:100%" onclick="doSetNewPassword()">${t('reset_save')}</button>`;
+}
+
+async function doSetNewPassword() {
+  const p1 = (document.getElementById('newPass1') || {}).value || '';
+  const p2 = (document.getElementById('newPass2') || {}).value || '';
+  const msg = document.getElementById('resetMsg');
+  const setMsg = (txt, ok) => { if (msg) { msg.textContent = txt; msg.style.color = ok ? '#4ade80' : 'var(--accent)'; } };
+  if (!p1 || !p2) { setMsg(t('auth_fill')); return; }
+  if (p1.length < 6) { setMsg(t('auth_pass_short')); return; }
+  if (p1 !== p2) { setMsg(t('reset_mismatch')); return; }
+  setMsg(t('auth_working'), true);
+  try {
+    const { error } = await updatePassword(p1);
+    if (error) { setMsg(error.message); return; }
+    setMsg(t('reset_ok'), true);
+    toast(t('reset_ok'));
+    setTimeout(() => { updateAuthUI(); if (typeof enforceLoginGate === 'function') enforceLoginGate(); }, 1200);
+  } catch (e) { setMsg((e && e.message) || String(e)); }
 }
 
 async function doSignUp(ctx) {
