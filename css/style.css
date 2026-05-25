@@ -562,3 +562,12 @@ body {
   font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 700;
   text-align: center; letter-spacing: .3px;
 }
+
+/* ===================== MAIL BADGE (account icon) ===================== */
+.mail-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 8px; background: var(--accent); color: #fff;
+  font-family: 'Rajdhani', sans-serif; font-size: 10px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--surface); line-height: 1;
+}
