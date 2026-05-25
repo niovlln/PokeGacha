@@ -237,13 +237,10 @@
   updatePityBar();
   // Restore cloud session (if configured) and sync
   if (typeof initAuth === 'function') initAuth();
-  // If not logged in shortly after load, show the account modal (also surfaces
-  // a config diagnostic if the cloud keys aren't set yet).
+  // Enforce login gate: block play until authenticated (see LOGIN_REQUIRED in ui.js).
   setTimeout(function () {
-    if (typeof currentUser === 'undefined' || !currentUser) {
-      openAuthModal();
-    }
-  }, 1200);
+    if (typeof enforceLoginGate === 'function') enforceLoginGate();
+  }, 600);
 </script>
 </body>
 </html>
