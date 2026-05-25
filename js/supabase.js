@@ -4,8 +4,8 @@
 // ============================================================
 //  CONFIG — paste your values from Supabase → Project Settings → API
 // ============================================================
-const SUPABASE_URL = 'https://YOUR-PROJECT-ref.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR-PUBLIC-ANON-KEY';
+const SUPABASE_URL = 'https://tcohtkhnlftkjjdbnhxv.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjb2h0a2hubGZ0a2pqZGJuaHh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Nzc5NTUsImV4cCI6MjA5NTI1Mzk1NX0.DxlumzIysZ39_VNN5my1wfwRUp7kl-VtBpdUnu_cVM0';
 
 // Create the client (the global `supabase` comes from the CDN script in index.html).
 let sb = null;
