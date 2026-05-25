@@ -1,59 +1,71 @@
 // js/collection.js — Collection screen + detail panel + filter/search
 
-let collFilter = 'all'; // 'all' | 'common' | 'rare' | 'legendary'
+let collFilter = 'all';     // rarity: 'all' | 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+let collStatus = 'all';     // capture status: 'all' | 'caught' | 'uncaught'
 let collSearch = '';
 
+function isCaught(id) {
+  const e = G.collection[id];
+  return !!(e && e.count > 0);
+}
+
 function renderCollection() {
-  const ids = ownedIds();
+  const owned = ownedIds();
   const countEl = document.getElementById('collCount');
-  if (countEl) countEl.textContent = `(${ids.length}/151)`;
+  if (countEl) countEl.textContent = `(${owned.length}/151)`;
   const empty = document.getElementById('collEmpty');
   const grid = document.getElementById('collGrid');
   const filterRow = document.getElementById('filterRow');
+  const statusRow = document.getElementById('statusRow');
   const searchWrap = document.getElementById('searchWrap');
 
-  if (!ids.length) {
-    empty.style.display = 'block';
-    grid.innerHTML = '';
-    if (filterRow) filterRow.style.display = 'none';
-    if (searchWrap) searchWrap.style.display = 'none';
-    return;
-  }
+  // The Box always shows all 151 now, so the filter/search UI is always visible.
   empty.style.display = 'none';
   if (filterRow) filterRow.style.display = 'flex';
+  if (statusRow) statusRow.style.display = 'flex';
   if (searchWrap) searchWrap.style.display = 'block';
 
-  // Sort by Pokédex id
-  let sorted = ids.slice().sort((a, b) => parseInt(a) - parseInt(b));
+  // Start from ALL 151, sorted by Pokédex id.
+  let list = POKEMON.slice().sort((a, b) => a.id - b.id);
 
-  // Apply rarity filter
+  // Capture-status filter
+  if (collStatus === 'caught')   list = list.filter(p => isCaught(p.id));
+  if (collStatus === 'uncaught') list = list.filter(p => !isCaught(p.id));
+
+  // Rarity filter
   if (collFilter !== 'all') {
     const rarityMap = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
     const target = rarityMap[collFilter];
-    sorted = sorted.filter(id => {
-      const p = getPoke(id);
-      return p && p.rarity === target;
-    });
+    list = list.filter(p => p.rarity === target);
   }
 
-  // Apply name/id search
+  // Name/id search — only matches by name for CAUGHT Pokémon (names of
+  // uncaught ones are hidden); id search still works for everything.
   if (collSearch.trim()) {
     const q = collSearch.trim().toLowerCase();
-    sorted = sorted.filter(id => {
-      const p = getPoke(id);
-      return p && (p.name.includes(q) || String(p.id).includes(q));
-    });
+    list = list.filter(p => String(p.id).includes(q) || (isCaught(p.id) && p.name.includes(q)));
   }
 
-  if (!sorted.length) {
+  if (!list.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);font-size:12px;padding:24px 0">' + t('no_match') + '</div>';
     return;
   }
 
-  grid.innerHTML = sorted.map(id => {
-    const p = getPoke(id);
-    if (!p) return '';
-    const count = G.collection[id].count;
+  grid.innerHTML = list.map(p => {
+    const caught = isCaught(p.id);
+    if (!caught) {
+      // Uncaptured: dark silhouette + "?" overlay, not clickable.
+      return `
+        <div class="pcard uncaught">
+          <div class="silhouette-wrap">
+            <img class="sprite silhouette" src="${spriteStatic(p.id)}" width="64" height="64"
+                 loading="lazy" onerror="this.style.display='none'">
+            <div class="silhouette-q">?</div>
+          </div>
+          <div class="pcard-name muted">#${p.id} ???</div>
+        </div>`;
+    }
+    const count = G.collection[p.id].count;
     const isDupe = count > 1;
     const glowColor = p.rarity === 5 ? '#ffd700' : p.rarity === 4 ? '#f43f5e' : p.rarity === 3 ? '#38bdf8' : p.rarity === 2 ? '#4ade80' : '';
     const borderStyle = p.rarity === 5
@@ -80,8 +92,16 @@ function renderCollection() {
 
 function setCollFilter(f) {
   collFilter = f;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#filterRow .filter-btn').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById('filter-' + f);
+  if (btn) btn.classList.add('active');
+  renderCollection();
+}
+
+function setCollStatus(s) {
+  collStatus = s;
+  document.querySelectorAll('#statusRow .filter-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('status-' + s);
   if (btn) btn.classList.add('active');
   renderCollection();
 }
