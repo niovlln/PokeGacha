@@ -39,32 +39,49 @@ function onGrassTap() {
 }
 
 // ---- Roll pokemon ----
-// Pity now counts encounters (not taps) since last Legendary.
-// At 80 consecutive non-legendary encounters, the next is guaranteed Legendary.
+// Pity advances on successful CAPTURE (see catchPokemon).
+// Odds 1 — at pity (>=80): the forced reward is 80% Epic / 20% Legendary.
+// Odds 2 — whenever a Legendary is chosen: 80% chance it's one the player has
+//          NOT caught yet, 20% chance it's one they already have (with safe
+//          fallback when either bucket is empty).
+function pickRandom(pool) {
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
+
+function pickLegendary() {
+  const legendaries = POKEMON.filter(p => p.rarity === 5);
+  const uncaught = legendaries.filter(p => !(G.collection[p.id] && G.collection[p.id].count > 0));
+  const caught   = legendaries.filter(p =>  (G.collection[p.id] && G.collection[p.id].count > 0));
+
+  // 80% uncaught / 20% caught — but fall back to whichever bucket has members.
+  const wantUncaught = Math.random() < 0.80;
+  let pool;
+  if (wantUncaught) pool = uncaught.length ? uncaught : caught;
+  else              pool = caught.length   ? caught   : uncaught;
+  // Final safety: if somehow both empty, use the full legendary list.
+  return pickRandom(pool.length ? pool : legendaries);
+}
+
 function rollPokemon() {
+  // Odds 1: pity reached → 80% Epic, 20% Legendary (no longer a flat guarantee).
   if (G.pity >= 80) {
-    const pool = POKEMON.filter(p => p.rarity === 5);
-    return pool[Math.floor(Math.random() * pool.length)];
+    if (Math.random() < 0.20) return pickLegendary();
+    return pickRandom(POKEMON.filter(p => p.rarity === 4));
   }
   const r = Math.random();
   if (r < 0.01) {
-    const pool = POKEMON.filter(p => p.rarity === 5);
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pickLegendary();                                   // Odds 2 applies here too
   }
   if (r < 0.05) {
-    const pool = POKEMON.filter(p => p.rarity === 4);
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pickRandom(POKEMON.filter(p => p.rarity === 4));
   }
   if (r < 0.20) {
-    const pool = POKEMON.filter(p => p.rarity === 3);
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pickRandom(POKEMON.filter(p => p.rarity === 3));
   }
   if (r < 0.50) {
-    const pool = POKEMON.filter(p => p.rarity === 2);
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pickRandom(POKEMON.filter(p => p.rarity === 2));
   }
-  const pool = POKEMON.filter(p => p.rarity === 1);
-  return pool[Math.floor(Math.random() * pool.length)];
+  return pickRandom(POKEMON.filter(p => p.rarity === 1));
 }
 
 // ---- Trigger encounter ----
@@ -72,12 +89,7 @@ function triggerEncounter() {
   const poke = rollPokemon();
   ENC.wildPoke = poke;
 
-  // Pity: only reset when a Legendary is rolled; otherwise increment
-  if (poke.rarity === 5) {
-    G.pity = 0;
-  } else {
-    G.pity++;
-  }
+  // (Pity now advances on successful CAPTURE, not on encounter — see catchPokemon.)
 
   ENC.clicks = 0;
   ENC.nextAt = nextEncAt();
@@ -97,6 +109,19 @@ function triggerEncounter() {
   document.getElementById('wildName').textContent = t('wild_appeared', { name: poke.name.toUpperCase() });
   document.getElementById('wildRarity').textContent = rarityStars(poke.rarity);
   document.getElementById('wildTypes').innerHTML = poke.types.map(typeBadge).join(' ');
+
+  // Captured/collected indicator: tell the player if this Pokémon is already
+  // in their Box (and how many) so they can decide whether to spend Poké Balls.
+  const ownedEl = document.getElementById('wildOwned');
+  const ownedCount = (G.collection[poke.id] && G.collection[poke.id].count) || 0;
+  if (ownedCount > 0) {
+    ownedEl.className = 'wild-owned-plate owned';
+    ownedEl.innerHTML = `${svgIcon('check', '#4ade80', 13)} ${t('wild_owned', { n: ownedCount })}`;
+  } else {
+    ownedEl.className = 'wild-owned-plate is-new';
+    ownedEl.innerHTML = `${svgIcon('star', '#ffd700', 13)} ${t('wild_new')}`;
+  }
+  ownedEl.style.display = 'inline-flex';
 
   // Apply rarity glow + animation to sprite
   const spriteEl = document.getElementById('wildSprite');
@@ -314,7 +339,17 @@ function runAway() {
 function catchPokemon(poke) {
   const isNew = !G.collection[poke.id] || G.collection[poke.id].count === 0;
   addToCollection(poke);
+
+  // Pity advances only on a SUCCESSFUL capture. Capturing a Legendary resets it;
+  // capturing anything else moves it toward the guaranteed-Legendary threshold.
+  if (poke.rarity === 5) {
+    G.pity = 0;
+  } else {
+    G.pity = Math.min(80, G.pity + 1);
+  }
+
   save(); updateHUD();
+  updatePityBar();
   document.getElementById('encounterOverlay').classList.remove('open');
   ENC.phase = 'walk';
   showResult(poke, isNew);
