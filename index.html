@@ -16,7 +16,12 @@
   <!-- ── HEADER ── -->
   <div class="hdr">
     <div class="logo">Poké<em>Gacha</em></div>
-    <div class="coin-pill">🪙 <span id="coinDisplay">500</span></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button id="accountBtn" onclick="openAuthModal()" style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:#ffffff10;border:1px solid var(--border);cursor:pointer;padding:0">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+      </button>
+      <div class="coin-pill">🪙 <span id="coinDisplay">500</span></div>
+    </div>
   </div>
 
   <!-- ── SCREENS ── -->
@@ -197,6 +202,14 @@
 </div>
 
 <!-- ── TOAST ── -->
+<!-- ── AUTH MODAL ── -->
+<div class="auth-overlay" id="authModal">
+  <div class="auth-card">
+    <button class="auth-close" onclick="closeAuthModal()" aria-label="close">✕</button>
+    <div id="authModalBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ── SCRIPTS (order matters) ── -->
@@ -223,6 +236,13 @@
   updatePityBar();
   // Restore cloud session (if configured) and sync
   if (typeof initAuth === 'function') initAuth();
+  // If not logged in shortly after load, show the account modal (also surfaces
+  // a config diagnostic if the cloud keys aren't set yet).
+  setTimeout(function () {
+    if (typeof currentUser === 'undefined' || !currentUser) {
+      openAuthModal();
+    }
+  }, 1200);
 </script>
 </body>
 </html>
