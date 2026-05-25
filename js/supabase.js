@@ -101,6 +101,19 @@ async function signIn(email, password) {
   if (!cloudEnabled()) return { error: { message: 'Cloud not configured' } };
   return await sb.auth.signInWithPassword({ email, password });
 }
+// Send a password-reset email. The link returns to the live site with a recovery
+// token; Supabase fires a PASSWORD_RECOVERY auth event we handle in initAuth.
+async function resetPassword(email) {
+  if (!cloudEnabled()) return { error: { message: 'Cloud not configured' } };
+  return await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.href.split('#')[0],
+  });
+}
+// Set a new password for the user currently in a recovery session.
+async function updatePassword(newPassword) {
+  if (!cloudEnabled()) return { error: { message: 'Cloud not configured' } };
+  return await sb.auth.updateUser({ password: newPassword });
+}
 async function signOutUser() {
   if (!cloudEnabled()) return;
   await pushCloudSave();          // flush before leaving
@@ -108,6 +121,8 @@ async function signOutUser() {
   currentUser = null;
   updateAuthUI();
   if (typeof enforceLoginGate === 'function') enforceLoginGate();
+  const badge = document.getElementById('mailBadge');
+  if (badge) badge.style.display = 'none';
 }
 
 // After login: merge local progress into the cloud save, apply, re-render.
@@ -124,6 +139,7 @@ async function onLoggedIn(user) {
   updateAuthUI();
   if (typeof enforceLoginGate === 'function') enforceLoginGate();
   updateHUD(); applyStaticI18n();
+  if (typeof refreshMailbox === 'function') refreshMailbox();
   if (typeof renderCollection === 'function') renderCollection();
   if (typeof renderAchievements === 'function') renderAchievements();
   if (typeof updatePityBar === 'function') updatePityBar();
@@ -138,6 +154,11 @@ async function initAuth() {
       await onLoggedIn(data.session.user);
     }
     sb.auth.onAuthStateChange((_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') {
+        // Player arrived via a reset link — let them set a new password.
+        if (typeof showPasswordResetPrompt === 'function') showPasswordResetPrompt();
+        return;
+      }
       if (session && session.user) { if (!currentUser) onLoggedIn(session.user); }
       else { currentUser = null; updateAuthUI(); if (typeof enforceLoginGate === 'function') enforceLoginGate(); }
     });
@@ -153,4 +174,37 @@ async function submitFeedbackCloud(message) {
     user_id: currentUser ? currentUser.id : null,
     message, lang: G.lang,
   });
+}
+
+// ---- Gifts / Mailbox -------------------------------------------------------
+// Fetch active gifts the player has NOT yet claimed.
+async function fetchUnclaimedGifts() {
+  if (!cloudEnabled() || !currentUser) return [];
+  try {
+    const giftsRes = await sb.from('gifts').select('*').eq('active', true).order('created_at', { ascending: false });
+    if (giftsRes.error) { console.warn('gifts load:', giftsRes.error.message); return []; }
+    const claimsRes = await sb.from('gift_claims').select('gift_id').eq('user_id', currentUser.id);
+    if (claimsRes.error) { console.warn('claims load:', claimsRes.error.message); return []; }
+    const claimed = new Set((claimsRes.data || []).map(c => c.gift_id));
+    return (giftsRes.data || []).filter(g => !claimed.has(g.id));
+  } catch (e) { console.warn('fetchUnclaimedGifts threw:', e); return []; }
+}
+
+// Claim one gift: record the claim (DB blocks double-claims via PK), then credit
+// the rewards locally and sync. Returns { ok, error }.
+async function claimGift(gift) {
+  if (!cloudEnabled() || !currentUser) return { ok: false, error: 'offline' };
+  try {
+    const { error } = await sb.from('gift_claims').insert({ user_id: currentUser.id, gift_id: gift.id });
+    if (error) {
+      // 23505 = unique violation = already claimed (e.g. on another device).
+      return { ok: false, error: error.code === '23505' ? 'already' : error.message };
+    }
+    if (gift.coins)   G.coins = (G.coins || 0) + gift.coins;
+    if (gift.balls)   G.bag['pokeball'] = (G.bag['pokeball'] || 0) + gift.balls;
+    if (gift.incense) G.bag['incense']  = (G.bag['incense']  || 0) + gift.incense;
+    if (typeof _validateState === 'function') _validateState();
+    save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
 }
