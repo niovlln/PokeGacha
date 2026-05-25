@@ -20,7 +20,7 @@
       <button id="accountBtn" onclick="openAuthModal()" style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:#ffffff10;border:1px solid var(--border);cursor:pointer;padding:0">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
       </button>
-      <div class="coin-pill">🪙 <span id="coinDisplay">500</span></div>
+      <div class="coin-pill"><span class="ico-coin"></span> <span id="coinDisplay">500</span></div>
     </div>
   </div>
 
@@ -34,7 +34,7 @@
           <div data-i18n="tall_grass" style="font-family:'Orbitron',monospace;font-size:13px;color:var(--gold);letter-spacing:2px">TALL GRASS</div>
           <div data-i18n="free_encounters" style="font-size:12px;color:var(--muted);margin-top:2px">FREE encounters — tap the grass!</div>
         </div>
-        <div class="ball-pill">🔴 <span class="ball-count">0</span> <span data-i18n="balls_suffix">Ball(s)</span></div>
+        <div class="ball-pill"><span class="ico-ball"></span> <span class="ball-count">0</span> <span data-i18n="balls_suffix">Ball(s)</span></div>
       </div>
 
       <div style="padding:0 16px 10px;font-size:12px;color:var(--muted)">
@@ -87,15 +87,15 @@
       <div class="coin-wrap">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div data-i18n="catching_phase" style="font-family:'Orbitron',monospace;font-size:10px;color:var(--gold)">CATCHING PHASE</div>
-          <div class="ball-pill">🔴 <span class="ball-count">0</span> ball(s)</div>
+          <div class="ball-pill"><span class="ico-ball"></span> <span class="ball-count">0</span> <span data-i18n="balls_suffix">Ball(s)</span></div>
         </div>
         <div class="coin-stage">
           <div class="coin" id="theCoin"><span class="coin-face" id="coinFaceInit"></span></div>
         </div>
         <div class="coin-result" id="coinResult" data-i18n="flip_prompt">Flip the coin to attempt a catch!</div>
         <div class="enc-btns">
-          <button class="enc-btn flip" id="flipBtn"    onclick="doFlip()">🪙 <span data-i18n="btn_flip">FLIP</span></button>
-          <button class="enc-btn ball" id="ballBtn"    onclick="usePokeballFlip()" style="display:none">🔴 <span data-i18n="btn_useball">USE BALL</span></button>
+          <button class="enc-btn flip" id="flipBtn"    onclick="doFlip()"><span class="ico-coin"></span> <span data-i18n="btn_flip">FLIP</span></button>
+          <button class="enc-btn ball" id="ballBtn"    onclick="usePokeballFlip()" style="display:none"><span class="ico-ball"></span> <span data-i18n="btn_useball">USE BALL</span></button>
           <button class="enc-btn buy"  id="buyBallBtn" onclick="buyBallInEncounter()" style="display:none">💰 <span data-i18n="btn_buyball">BUY BALL</span></button>
           <button class="enc-btn run"  id="runBtn"     onclick="runAway()">🏃 <span data-i18n="btn_run">RUN</span></button>
         </div>
@@ -228,6 +228,7 @@
   load();
   applyStaticI18n();   // fill all [data-i18n] from the saved language
   document.getElementById('coinFaceInit').innerHTML = coinFace('coin');
+  fillStaticIcons();
   updateHUD();
   renderShop();
   renderSettings();
