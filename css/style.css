@@ -505,3 +505,39 @@ body {
 #app.locked .hdr { pointer-events: none; }
 /* In gate mode the modal cannot be dismissed: hide the close button. */
 #authModal.gated .auth-close { display: none; }
+
+/* Captured/collected indicator on the encounter screen */
+.wild-owned-plate {
+  margin-top: 8px; display: inline-flex; align-items: center; gap: 5px;
+  font-family: 'Rajdhani', sans-serif; font-size: 12px; font-weight: 700;
+  padding: 4px 12px; border-radius: 20px; letter-spacing: .3px;
+}
+.wild-owned-plate.owned  { background: #4ade8018; border: 1px solid #4ade8044; color: #4ade80; }
+.wild-owned-plate.is-new { background: #ffd70018; border: 1px solid #ffd70044; color: var(--gold); }
+
+/* ===================== iOS DOUBLE-TAP-ZOOM FIX ===================== */
+/* iOS Safari ignores user-scalable=no, so spamming a button triggers
+   double-tap-to-zoom. touch-action: manipulation tells the browser these
+   elements handle taps directly — no double-tap gesture, no zoom jump.
+   Pinch-zoom elsewhere is unaffected. */
+.grass-btn, .enc-btn, .nav-item, .lang-btn, .btn-danger,
+.btn-sm-gold, .btn-sm-ghost, .filter-btn, .shop-item, .pcard,
+.coin, #accountBtn, .auth-close, button {
+  touch-action: manipulation;
+}
+
+/* ===================== UNCAPTURED (SILHOUETTE) CARDS ===================== */
+.pcard.uncaught { cursor: default; opacity: .9; }
+.pcard.uncaught:hover { transform: none; border-color: var(--border); }
+.silhouette-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+/* brightness(0) turns the artwork into a pure black silhouette */
+.sprite.silhouette {
+  filter: brightness(0) opacity(0.45);
+  -webkit-filter: brightness(0) opacity(0.45);
+}
+.silhouette-q {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: 'Orbitron', monospace; font-size: 26px; font-weight: 900;
+  color: var(--muted); text-shadow: 0 0 8px #00000088; pointer-events: none;
+}
+.pcard-name.muted { color: var(--muted); }
