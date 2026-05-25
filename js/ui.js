@@ -35,9 +35,9 @@ function coinFace(kind, size = 46) {
       <line x1="2.5" y1="12" x2="21.5" y2="12" stroke="#15151f" stroke-width="1.4"/>
       <circle cx="12" cy="12" r="3.1" fill="#fff" stroke="#15151f" stroke-width="1.4"/>`);
   }
-  if (kind === 'heads') { // crown
-    return wrap(`<path d="M4 17h16l1-9-5 4-4-7-4 7-5-4 1 9z" fill="#fff8c0" stroke="#8a6d00" stroke-width="1.4"/>
-      <line x1="4" y1="20" x2="20" y2="20" stroke="#8a6d00" stroke-width="2"/>`);
+  if (kind === 'heads') { // PokéCoin — gold disc with P
+    return wrap(`<circle cx="12" cy="12" r="9.5" fill="#ffe566" stroke="#8a6d00" stroke-width="1.6"/>
+      <text x="12" y="16.5" text-anchor="middle" font-size="12" font-weight="900" fill="#8a6d00" font-family="Orbitron,monospace">P</text>`);
   }
   if (kind === 'tails') { // moon
     return wrap(`<path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z" fill="#e8e8f8" stroke="#5a5a72" stroke-width="1.4"/>`);
