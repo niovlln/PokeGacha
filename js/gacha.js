@@ -127,7 +127,7 @@ function triggerEncounter() {
 function resetCoinUI() {
   const coin = document.getElementById('theCoin');
   coin.className = 'coin';
-  coin.innerHTML = '<span class="coin-face">' + coinFace('coin') + '</span>';
+  coin.innerHTML = coinHTML('coin', 'tails');
   const res = document.getElementById('coinResult');
   res.textContent = t('flip_prompt');
   res.className = 'coin-result';
@@ -161,7 +161,7 @@ function runDramaticFlip(usingBall) {
 
   // Phase 1: Launch into fast spin
   coin.className = 'coin flipping-dramatic';
-  coin.innerHTML = '<span class="coin-face">' + coinFace(usingBall ? 'ball' : 'coin') + '</span>';
+  coin.innerHTML = coinHTML(usingBall ? 'ball' : 'coin', 'tails');
   res.textContent = t('flipping');
   res.className = 'coin-result';
 
@@ -178,7 +178,7 @@ function runDramaticFlip(usingBall) {
         // Phase 4: Reveal
         const heads = Math.random() < 0.5;
         coin.className = 'coin ' + (heads ? 'heads' : 'tails') + ' land';
-        coin.innerHTML = '<span class="coin-face">' + coinFace(heads ? 'heads' : 'tails') + '</span>';
+        coin.innerHTML = coinHTML('heads', 'tails');
 
         // Burst particles
         burstParticles(coin, heads);
@@ -280,7 +280,7 @@ function usePokeballFlip() {
   document.getElementById('buyBallBtn').style.display = 'none';
   document.getElementById('runBtn').disabled = true;
   coin.className = 'coin';
-  coin.innerHTML = '<span class="coin-face">' + coinFace('ball') + '</span>';
+  coin.innerHTML = coinHTML('ball', 'tails');
   res.textContent = t('ball_thrown');
   res.className = 'coin-result';
 
