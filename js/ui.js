@@ -173,66 +173,107 @@ function renderSettings() {
   updateAuthUI();
 }
 
-// ---- Auth UI (account card inside Settings) ----
-function updateAuthUI() {
-  const body = document.getElementById('accountBody');
-  if (!body) return;
-
+// ---- Auth UI ----
+// Builds the auth markup once; rendered into both the Settings card and the
+// main-screen modal. `ctx` namespaces the input ids so the two can coexist.
+function authMarkup(ctx) {
   if (typeof cloudEnabled === 'function' && !cloudEnabled()) {
-    body.innerHTML = `<div style="font-size:12px;color:var(--muted);line-height:1.5">${t('account_offline')}</div>`;
-    return;
+    // Diagnose WHY cloud is off so it's never a silent dead-end.
+    let reason = '';
+    if (typeof window.supabase === 'undefined') {
+      reason = t('auth_no_lib');
+    } else if (typeof SUPABASE_URL === 'undefined' || SUPABASE_URL.indexOf('YOUR-') !== -1) {
+      reason = t('auth_no_config');
+    } else {
+      reason = t('account_offline');
+    }
+    return `<div style="font-size:12px;color:var(--muted);line-height:1.6">${t('account_offline')}</div>
+            <div style="font-size:11px;color:var(--accent);margin-top:8px;line-height:1.5">⚠ ${reason}</div>`;
   }
-
   if (typeof currentUser !== 'undefined' && currentUser) {
-    body.innerHTML = `
+    return `
       <div style="font-size:13px;color:var(--text);margin-bottom:4px">${t('logged_in_as')}</div>
       <div style="font-size:13px;color:var(--gold);font-weight:700;margin-bottom:10px;word-break:break-all">${currentUser.email || ''}</div>
       <div style="font-size:11px;color:#4ade80;margin-bottom:10px;display:flex;align-items:center;gap:5px">${svgIcon('check', '#4ade80', 13)} ${t('cloud_synced')}</div>
       <button class="lang-btn" style="width:100%" onclick="signOutUser()">${t('logout')}</button>`;
-    return;
   }
-
-  // Logged out
-  body.innerHTML = `
+  return `
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.4">${t('account_desc')}</div>
-    <input id="authEmail" class="feedback-input" type="email" placeholder="${t('email')}" style="margin-bottom:8px" autocomplete="email">
-    <input id="authPass" class="feedback-input" type="password" placeholder="${t('password')}" style="margin-bottom:8px" autocomplete="current-password">
-    <div id="authMsg" style="font-size:11px;color:var(--accent);min-height:14px;margin-bottom:8px"></div>
+    <input id="authEmail_${ctx}" class="feedback-input" type="email" placeholder="${t('email')}" style="margin-bottom:8px" autocomplete="email">
+    <input id="authPass_${ctx}" class="feedback-input" type="password" placeholder="${t('password')}" style="margin-bottom:8px" autocomplete="current-password">
+    <div id="authMsg_${ctx}" style="font-size:12px;color:var(--accent);min-height:16px;margin-bottom:8px;line-height:1.3"></div>
     <div style="display:flex;gap:8px">
-      <button class="lang-btn active" style="flex:1" onclick="doSignIn()">${t('login')}</button>
-      <button class="lang-btn" style="flex:1" onclick="doSignUp()">${t('signup')}</button>
+      <button class="lang-btn active" style="flex:1" onclick="doSignIn('${ctx}')">${t('login')}</button>
+      <button class="lang-btn" style="flex:1" onclick="doSignUp('${ctx}')">${t('signup')}</button>
     </div>`;
 }
 
-function _authInputs() {
-  const email = (document.getElementById('authEmail') || {}).value || '';
-  const pass = (document.getElementById('authPass') || {}).value || '';
+function updateAuthUI() {
+  const card = document.getElementById('accountBody');
+  if (card) card.innerHTML = authMarkup('card');
+  const modal = document.getElementById('authModalBody');
+  if (modal) {
+    const loggedOut = !(typeof currentUser !== 'undefined' && currentUser) &&
+                      !(typeof cloudEnabled === 'function' && !cloudEnabled());
+    modal.innerHTML =
+      `<div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--gold);letter-spacing:1px;margin-bottom:14px;text-align:center">${t('auth_title')}</div>`
+      + authMarkup('modal')
+      + (loggedOut ? `<button class="lang-btn" style="width:100%;margin-top:8px" onclick="closeAuthModal()">${t('auth_skip')}</button>` : '');
+  }
+  const btn = document.getElementById('accountBtn');
+  if (btn) btn.style.display = 'flex';
+}
+
+function openAuthModal() {
+  updateAuthUI();
+  const m = document.getElementById('authModal');
+  if (m) m.classList.add('open');
+}
+function closeAuthModal() {
+  const m = document.getElementById('authModal');
+  if (m) m.classList.remove('open');
+}
+
+function _authInputs(ctx) {
+  const email = (document.getElementById('authEmail_' + ctx) || {}).value || '';
+  const pass = (document.getElementById('authPass_' + ctx) || {}).value || '';
   return { email: email.trim(), pass };
 }
-function _authMsg(text, ok) {
-  const m = document.getElementById('authMsg');
+function _authMsg(ctx, text, ok) {
+  const m = document.getElementById('authMsg_' + ctx);
   if (m) { m.textContent = text; m.style.color = ok ? '#4ade80' : 'var(--accent)'; }
 }
 
-async function doSignIn() {
-  const { email, pass } = _authInputs();
-  if (!email || !pass) { _authMsg(t('auth_fill')); return; }
-  _authMsg(t('auth_working'), true);
-  const { data, error } = await signIn(email, pass);
-  if (error) { _authMsg(error.message); return; }
-  if (data && data.user) { await onLoggedIn(data.user); toast(t('login_ok')); }
+async function doSignIn(ctx) {
+  if (typeof cloudEnabled !== 'function' || !cloudEnabled()) { _authMsg(ctx, t('auth_no_cloud')); return; }
+  const { email, pass } = _authInputs(ctx);
+  if (!email || !pass) { _authMsg(ctx, t('auth_fill')); return; }
+  _authMsg(ctx, t('auth_working'), true);
+  try {
+    const { data, error } = await signIn(email, pass);
+    if (error) { _authMsg(ctx, error.message); return; }
+    if (data && data.user) { await onLoggedIn(data.user); closeAuthModal(); toast(t('login_ok')); }
+  } catch (e) { _authMsg(ctx, (e && e.message) || String(e)); }
 }
 
-async function doSignUp() {
-  const { email, pass } = _authInputs();
-  if (!email || !pass) { _authMsg(t('auth_fill')); return; }
-  if (pass.length < 6) { _authMsg(t('auth_pass_short')); return; }
-  _authMsg(t('auth_working'), true);
-  const { data, error } = await signUp(email, pass);
-  if (error) { _authMsg(error.message); return; }
-  // If email confirmation is OFF, session is active immediately.
-  if (data && data.user && data.session) { await onLoggedIn(data.user); toast(t('signup_ok')); }
-  else { _authMsg(t('check_email'), true); }
+async function doSignUp(ctx) {
+  if (typeof cloudEnabled !== 'function' || !cloudEnabled()) { _authMsg(ctx, t('auth_no_cloud')); return; }
+  const { email, pass } = _authInputs(ctx);
+  if (!email || !pass) { _authMsg(ctx, t('auth_fill')); return; }
+  if (pass.length < 6) { _authMsg(ctx, t('auth_pass_short')); return; }
+  _authMsg(ctx, t('auth_working'), true);
+  try {
+    const { data, error } = await signUp(email, pass);
+    if (error) { _authMsg(ctx, error.message); return; }
+    // Email confirmation OFF → session active now. ON → no session yet.
+    if (data && data.session && data.user) {
+      await onLoggedIn(data.user); closeAuthModal(); toast(t('signup_ok'));
+    } else if (data && data.user) {
+      _authMsg(ctx, t('check_email'), true);
+    } else {
+      _authMsg(ctx, t('auth_fill'));
+    }
+  } catch (e) { _authMsg(ctx, (e && e.message) || String(e)); }
 }
 // CHANGE THIS to the address where you want feedback delivered:
 const FEEDBACK_EMAIL = 'feedback@example.com';
