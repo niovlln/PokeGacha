@@ -475,3 +475,7 @@ body {
   cursor: pointer; border-radius: 6px; line-height: 1;
 }
 .auth-close:active { transform: scale(.9); }
+
+/* Static SVG icon placeholders (coin/ball) — align with adjacent text */
+.ico-coin, .ico-ball { display: inline-flex; align-items: center; vertical-align: middle; }
+.ico-coin svg, .ico-ball svg { display: block; }
