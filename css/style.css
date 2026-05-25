@@ -497,3 +497,11 @@ body {
 /* Static SVG icon placeholders (coin/ball) — align with adjacent text */
 .ico-coin, .ico-ball { display: inline-flex; align-items: center; vertical-align: middle; }
 .ico-coin svg, .ico-ball svg { display: block; }
+
+/* ===================== LOGIN GATE ===================== */
+/* Lock the game behind the auth modal until authenticated. */
+#app.locked .screens,
+#app.locked .bot-nav { filter: blur(6px); pointer-events: none; user-select: none; }
+#app.locked .hdr { pointer-events: none; }
+/* In gate mode the modal cannot be dismissed: hide the close button. */
+#authModal.gated .auth-close { display: none; }
