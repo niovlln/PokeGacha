@@ -194,14 +194,12 @@ body {
 .coin-front {
   background: radial-gradient(circle at 35% 35%, #ffe566, #c8a800);
   border-color: var(--gold);
-  box-shadow: 0 4px 24px #ffd70044;
 }
 /* TAILS — visibly DARKER than heads, pre-rotated to the back. */
 .coin-back {
   background: radial-gradient(circle at 35% 35%, #6b6b7a, #2a2a38);
   border-color: #5a5a6e;
   transform: rotateX(180deg);
-  box-shadow: 0 4px 24px #00000055;
 }
 .coin-face { display: block; line-height: 1; }
 
@@ -249,12 +247,12 @@ body {
   100% { transform: rotateX(180deg) scale(1)   translateY(0); }
 }
 
-/* Result glow on the whole coin (faces keep their own gold/dark colors). */
-.coin.heads {
-  box-shadow: 0 0 40px #ffd70088, 0 0 80px #ffd70033, 0 4px 24px #ffd70044;
+/* Result glow on the ROUND face (not the square container) so it stays circular. */
+.coin.heads .coin-front {
+  box-shadow: 0 0 40px #ffd70088, 0 0 80px #ffd70033;
 }
-.coin.tails {
-  box-shadow: 0 0 20px #aaaaaa44, 0 4px 12px #00000044;
+.coin.tails .coin-back {
+  box-shadow: 0 0 24px #aaaaaa55;
 }
 
 /* Pulse ring on heads */
