@@ -229,13 +229,51 @@ function updateAuthUI() {
   if (modal) {
     const loggedOut = !(typeof currentUser !== 'undefined' && currentUser) &&
                       !(typeof cloudEnabled === 'function' && !cloudEnabled());
+    // In gate mode we do NOT offer a "skip" button — login is required.
+    const showSkip = loggedOut && !LOGIN_REQUIRED;
     modal.innerHTML =
       `<div style="font-family:'Orbitron',monospace;font-size:13px;color:var(--gold);letter-spacing:1px;margin-bottom:14px;text-align:center">${t('auth_title')}</div>`
+      + (LOGIN_REQUIRED && loggedOut ? `<div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px;line-height:1.4">${t('login_required')}</div>` : '')
       + authMarkup('modal')
-      + (loggedOut ? `<button class="lang-btn" style="width:100%;margin-top:8px" onclick="closeAuthModal()">${t('auth_skip')}</button>` : '');
+      + (showSkip ? `<button class="lang-btn" style="width:100%;margin-top:8px" onclick="closeAuthModal()">${t('auth_skip')}</button>` : '');
   }
   const btn = document.getElementById('accountBtn');
   if (btn) btn.style.display = 'flex';
+}
+
+// ---- LOGIN GATE ----
+// When true, the game is blocked behind the auth modal until the player logs in.
+// (Set to false to restore optional guest play.)
+const LOGIN_REQUIRED = true;
+
+// Show/hide the gate based on auth + cloud state. Called on boot and on auth changes.
+function enforceLoginGate() {
+  if (!LOGIN_REQUIRED) { unlockGame(); return; }
+
+  // If cloud isn't configured/reachable, do NOT hard-lock (would brick the game
+  // for everyone, including you). Show the modal with its diagnostic instead.
+  const cloudOff = typeof cloudEnabled !== 'function' || !cloudEnabled();
+  const loggedIn = typeof currentUser !== 'undefined' && !!currentUser;
+
+  if (loggedIn) { unlockGame(); return; }
+
+  // Logged out → lock the game behind the modal.
+  lockGame();
+  openAuthModal();
+  // If cloud is OFF, allow dismissal so a misconfig/offline state isn't an
+  // unescapable wall; if cloud is ON, the modal stays non-dismissible.
+  const modal = document.getElementById('authModal');
+  if (modal) modal.classList.toggle('gated', !cloudOff);
+}
+
+function lockGame() {
+  document.getElementById('app')?.classList.add('locked');
+}
+function unlockGame() {
+  document.getElementById('app')?.classList.remove('locked');
+  const modal = document.getElementById('authModal');
+  if (modal) modal.classList.remove('gated');
+  closeAuthModal();
 }
 
 function openAuthModal() {
@@ -244,8 +282,11 @@ function openAuthModal() {
   if (m) m.classList.add('open');
 }
 function closeAuthModal() {
+  // Block dismissal while gated (login required + cloud available + logged out).
   const m = document.getElementById('authModal');
-  if (m) m.classList.remove('open');
+  if (!m) return;
+  if (m.classList.contains('gated')) return;   // non-dismissible in gate mode
+  m.classList.remove('open');
 }
 
 function _authInputs(ctx) {
