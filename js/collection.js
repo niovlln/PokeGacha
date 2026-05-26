@@ -173,7 +173,21 @@ function openDetail(id) {
   document.getElementById('detailPanel').classList.add('open');
 }
 
-function convertFromDetail(pokeId) {
+async function convertFromDetail(pokeId) {
+  if (typeof serverConvert === 'function' && typeof cloudEnabled === 'function' && cloudEnabled() && typeof currentUser !== 'undefined' && currentUser) {
+    const res = await serverConvert(pokeId);
+    if (res.ok) {
+      updateHUD();
+      toast(t('converted', { n: res.reward }));
+      openDetail(pokeId);
+      renderCollection();
+    } else if (res.error === 'no_duplicate') {
+      toast(t('no_dupe'));
+    } else {
+      toast(t('purchase_failed'));
+    }
+    return;
+  }
   const reward = convertDuplicate(pokeId);
   if (!reward) { toast(t('no_dupe')); return; }
   updateHUD();

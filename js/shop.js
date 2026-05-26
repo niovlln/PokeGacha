@@ -76,7 +76,20 @@ function renderShop() {
   `;
 }
 
-function buyIncense() {
+async function buyIncense() {
+  if (typeof serverBuy === 'function' && typeof cloudEnabled === 'function' && cloudEnabled() && typeof currentUser !== 'undefined' && currentUser) {
+    const res = await serverBuy('incense');
+    if (res.ok) {
+      updateHUD(); renderShop();
+      if (typeof updateIncenseUI === 'function') updateIncenseUI();
+      toast(t('incense_bought'));
+    } else if (res.error === 'insufficient') {
+      toast(t('need_coins', { n: (20000).toLocaleString() }));
+    } else {
+      toast(t('purchase_failed'));
+    }
+    return;
+  }
   const cost = 20000;
   if (G.coins < cost) { toast(t('need_coins', { n: cost.toLocaleString() })); return; }
   G.coins -= cost;
@@ -86,7 +99,23 @@ function buyIncense() {
   toast(t('incense_bought'));
 }
 
-function buyBall(qty) {
+async function buyBall(qty) {
+  const sku = qty === 5 ? 'ball5' : 'ball1';
+  // Server-authoritative when logged in.
+  if (typeof serverBuy === 'function' && typeof cloudEnabled === 'function' && cloudEnabled() && typeof currentUser !== 'undefined' && currentUser) {
+    const res = await serverBuy(sku);
+    if (res.ok) {
+      updateHUD(); renderShop();
+      if (typeof updateIncenseUI === 'function') updateIncenseUI();
+      toast(t('bought_balls', { n: qty, s: qty > 1 ? 's' : '', total: balls() }));
+    } else if (res.error === 'insufficient') {
+      toast(t('need_coins', { n: (qty === 5 ? 900 : 200) }));
+    } else {
+      toast(t('purchase_failed'));
+    }
+    return;
+  }
+  // Offline / not logged in: local fallback (unchanged behavior).
   const cost = qty === 5 ? 900 : 200;
   if (G.coins < cost) { toast(t('need_coins', { n: cost })); return; }
   G.coins -= cost;

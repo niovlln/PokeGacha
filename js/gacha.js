@@ -6,6 +6,7 @@ const ENC = {
   phase: 'walk', // 'walk' | 'encounter'
   wildPoke: null,
   incenseActive: false, // one-shot: next roll is a random uncaptured common–rare
+  wasPityEncounter: false, // true when current encounter was triggered at max pity
 };
 ENC.nextAt = nextEncAt();
 
@@ -107,7 +108,7 @@ function rollPokemon() {
   }
 
   // Odds 1: pity reached → 80% Epic, 20% Legendary (no longer a flat guarantee).
-  if (G.pity >= 80) {
+  if (G.pity >= 50) {
     if (Math.random() < 0.20) return pickLegendary();
     return pickRandom(POKEMON.filter(p => p.rarity === 4));
   }
@@ -128,8 +129,25 @@ function rollPokemon() {
 }
 
 // ---- Trigger encounter ----
-function triggerEncounter() {
-  const poke = rollPokemon();
+async function triggerEncounter() {
+  // Was this triggered at max pity? (Captured before rollPokemon may reset pity.)
+  // Incense overrides pity, so a pity encounter only counts when no incense is active.
+  ENC.wasPityEncounter = (G.pity >= 50 && !ENC.incenseActive);
+
+  let poke;
+  if (ENC.incenseActive) {
+    // Incense is a client-side one-shot the server roll doesn't handle — keep local.
+    poke = rollPokemon();
+  } else {
+    // PHASE 1: ask the SERVER to decide the roll (authoritative). Fall back to the
+    // local roll if offline / not logged in / the call fails, so play never breaks.
+    const sr = (typeof serverRoll === 'function') ? await serverRoll() : null;
+    if (sr && typeof getPoke === 'function' && getPoke(sr.id)) {
+      poke = getPoke(sr.id);
+    } else {
+      poke = rollPokemon();
+    }
+  }
   ENC.wildPoke = poke;
 
   // (Pity now advances on successful CAPTURE, not on encounter — see catchPokemon.)
@@ -235,46 +253,80 @@ function runDramaticFlip(usingBall) {
   res.textContent = t('flipping');
   res.className = 'coin-result';
 
-  // Shake the whole coin-wrap
   const wrap = document.querySelector('.coin-wrap');
   wrap.classList.add('shake');
   setTimeout(() => wrap.classList.remove('shake'), 600);
+
+  // PHASE 3: ask the SERVER for the authoritative flip outcome + catch, in
+  // parallel with the spin animation so latency hides under the animation.
+  const useServer = (typeof serverCatch === 'function' && typeof cloudEnabled === 'function' &&
+                     cloudEnabled() && typeof currentUser !== 'undefined' && currentUser);
+  const outcomePromise = useServer
+    ? serverCatch(ENC.wildPoke.id, usingBall, ENC.wasPityEncounter)
+    : Promise.resolve(null); // offline → resolved below with a local flip
 
   setTimeout(() => {
     // Phase 2: Slow-down tease
     coin.className = 'coin slowing';
 
-      setTimeout(() => {
-        // Phase 4: Reveal
-        const heads = Math.random() < 0.5;
-        coin.className = 'coin ' + (heads ? 'heads' : 'tails') + ' land';
+    setTimeout(async () => {
+      // Resolve the outcome (server result, or local fallback).
+      let sr = await outcomePromise;
+      let heads, serverCaught = false, isNew = false;
+      if (sr && (sr.result === 'heads' || sr.result === 'tails')) {
+        heads = sr.result === 'heads';
+        serverCaught = !!sr.caught;
+        isNew = !!sr.isNew;
+        // Sync authoritative bag (ball consumption) for display.
+        if (sr.bag) G.bag = sr.bag;
+        updateHUD();
+      } else if (sr && sr.error === 'no_balls') {
+        // Server says no ball to spend — bail back to tails options.
+        coin.className = 'coin tails land';
         coin.innerHTML = coinHTML('heads', 'tails');
+        res.className = 'coin-result bad';
+        showTailsOptions();
+        return;
+      } else {
+        // Offline / failure → local flip + local catch (non-authoritative path).
+        heads = Math.random() < 0.5;
+      }
 
-        // Burst particles
-        burstParticles(coin, heads);
+      coin.className = 'coin ' + (heads ? 'heads' : 'tails') + ' land';
+      coin.innerHTML = coinHTML('heads', 'tails');
+      burstParticles(coin, heads);
 
-        if (heads) {
-          res.textContent = usingBall ? t('heads_ball') : t('heads_gotcha');
-          res.className = 'coin-result ok';
-          flipBtn.style.display = 'none';
-          // Screen flash green
-          flashScreen('#00ff6633');
-          setTimeout(() => catchPokemon(ENC.wildPoke), 950);
+      if (heads) {
+        res.textContent = usingBall ? t('heads_ball') : t('heads_gotcha');
+        res.className = 'coin-result ok';
+        flipBtn.style.display = 'none';
+        flashScreen('#00ff6633');
+        if (useServer && serverCaught) {
+          // Server already recorded the catch + pity; just show the result.
+          setTimeout(() => finishServerCatch(ENC.wildPoke, isNew), 950);
         } else {
-          res.className = 'coin-result bad';
-          // Screen flash red
-          flashScreen('#ff000022');
-          setTimeout(() => {
-            if (usingBall) {
-              ballBtn.disabled = false;
-              showTailsOptions();
-            } else {
-              showTailsOptions();
-            }
-          }, 400);
+          setTimeout(() => catchPokemon(ENC.wildPoke), 950);
         }
-      }, 480); // slow-down duration
-  }, 700); // fast spin duration
+      } else {
+        res.className = 'coin-result bad';
+        flashScreen('#ff000022');
+        setTimeout(() => {
+          if (usingBall) { ballBtn.disabled = false; showTailsOptions(); }
+          else { showTailsOptions(); }
+        }, 400);
+      }
+    }, 480);
+  }, 700);
+}
+
+// After a server-authoritative catch: state is already updated server-side and
+// reflected in G via serverCatch(); just close the overlay and show the result.
+function finishServerCatch(poke, isNew) {
+  save(); updateHUD(); updatePityBar();
+  ENC.wasPityEncounter = false;
+  document.getElementById('encounterOverlay').classList.remove('open');
+  ENC.phase = 'walk';
+  showResult(poke, isNew);
 }
 
 // ---- Particle burst on coin land ----
@@ -341,8 +393,14 @@ function showTailsOptions() {
 // ---- Use pokeball: re-flip (not guaranteed) ----
 function usePokeballFlip() {
   if (balls() <= 0) { toast(t('no_balls')); return; }
-  G.bag['pokeball'] = (G.bag['pokeball'] || 1) - 1;
-  save(); updateHUD();
+  // When server-authoritative, the `catch` function consumes the ball (useBall=true),
+  // so DON'T decrement locally or it double-counts. Only decrement in offline mode.
+  const useServer = (typeof serverCatch === 'function' && typeof cloudEnabled === 'function' &&
+                     cloudEnabled() && typeof currentUser !== 'undefined' && currentUser);
+  if (!useServer) {
+    G.bag['pokeball'] = (G.bag['pokeball'] || 1) - 1;
+    save(); updateHUD();
+  }
 
   const coin = document.getElementById('theCoin');
   const res = document.getElementById('coinResult');
@@ -358,26 +416,42 @@ function usePokeballFlip() {
 }
 
 // ---- Buy a ball mid-encounter ----
-function buyBallInEncounter() {
-  if (G.coins < 200) {
-    toast(t('not_enough_buy'));
+async function buyBallInEncounter() {
+  const showBought = () => {
+    document.getElementById('buyBallBtn').style.display = 'none';
+    document.getElementById('ballBtn').style.display = '';
+    document.getElementById('ballBtn').disabled = false;
+    document.getElementById('coinResult').textContent = t('tails_useball');
+  };
+  if (typeof serverBuy === 'function' && typeof cloudEnabled === 'function' && cloudEnabled() && typeof currentUser !== 'undefined' && currentUser) {
+    const res = await serverBuy('ball1');
+    if (res.ok) { updateHUD(); toast(t('bought_ball_enc')); showBought(); }
+    else if (res.error === 'insufficient') { toast(t('not_enough_buy')); }
+    else { toast(t('purchase_failed')); }
     return;
   }
+  if (G.coins < 200) { toast(t('not_enough_buy')); return; }
   G.coins -= 200;
   G.bag['pokeball'] = (G.bag['pokeball'] || 0) + 1;
   save(); updateHUD();
   toast(t('bought_ball_enc'));
-  document.getElementById('buyBallBtn').style.display = 'none';
-  document.getElementById('ballBtn').style.display = '';
-  document.getElementById('ballBtn').disabled = false;
-  document.getElementById('coinResult').textContent = t('tails_useball');
+  showBought();
 }
 
 // ---- Run away ----
 function runAway() {
   document.getElementById('encounterOverlay').classList.remove('open');
   ENC.phase = 'walk';
-  toast(t('got_away'));
+  // If this was the guaranteed pity encounter, the pity is "used up" even by
+  // running — the player cannot dodge a bad pity roll and keep the guarantee.
+  if (ENC.wasPityEncounter) {
+    G.pity = 0;
+    ENC.wasPityEncounter = false;
+    save(); updatePityBar();
+    toast(t('pity_used'));
+  } else {
+    toast(t('got_away'));
+  }
 }
 
 // ---- Catch ----
@@ -385,13 +459,16 @@ function catchPokemon(poke) {
   const isNew = !G.collection[poke.id] || G.collection[poke.id].count === 0;
   addToCollection(poke);
 
-  // Pity advances only on a SUCCESSFUL capture. Capturing a Legendary resets it;
-  // capturing anything else moves it toward the guaranteed-Legendary threshold.
-  if (poke.rarity === 5) {
+  // Pity advances only on a SUCCESSFUL capture.
+  // - If this was the guaranteed PITY encounter, capturing ANYTHING uses it up
+  //   (resets to 0) — same as running, so the payout is spent either way.
+  // - Otherwise: capturing a Legendary resets pity; anything else advances it.
+  if (ENC.wasPityEncounter || poke.rarity === 5) {
     G.pity = 0;
   } else {
-    G.pity = Math.min(80, G.pity + 1);
+    G.pity = Math.min(50, G.pity + 1);
   }
+  ENC.wasPityEncounter = false;
 
   save(); updateHUD();
   updatePityBar();
@@ -442,9 +519,17 @@ function showResult(poke, isNew) {
   document.getElementById('resultModal').classList.add('open');
 }
 
-function convertAndClose(pokeId) {
-  const reward = convertDuplicate(pokeId);
+async function convertAndClose(pokeId) {
   document.getElementById('resultModal').classList.remove('open');
+  if (typeof serverConvert === 'function' && typeof cloudEnabled === 'function' && cloudEnabled() && typeof currentUser !== 'undefined' && currentUser) {
+    const res = await serverConvert(pokeId);
+    updateHUD(); renderCollection();
+    if (res.ok) toast(t('converted', { n: res.reward }));
+    else if (res.error === 'no_duplicate') toast(t('no_dupe'));
+    else toast(t('purchase_failed'));
+    return;
+  }
+  const reward = convertDuplicate(pokeId);
   updateHUD();
   renderCollection();
   if (reward) toast(t('converted', { n: reward }));

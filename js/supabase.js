@@ -6,7 +6,6 @@
 // ============================================================
 const SUPABASE_URL = 'https://tcohtkhnlftkjjdbnhxv.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjb2h0a2hubGZ0a2pqZGJuaHh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Nzc5NTUsImV4cCI6MjA5NTI1Mzk1NX0.DxlumzIysZ39_VNN5my1wfwRUp7kl-VtBpdUnu_cVM0';
-
 // Create the client (the global `supabase` comes from the CDN script in index.html).
 let sb = null;
 try {
@@ -33,14 +32,32 @@ function scheduleCloudSync() {
 async function pushCloudSave() {
   if (!cloudEnabled() || !currentUser) return;
   try {
+    // Phase 2a: COINS are server-owned. The client must not overwrite them with
+    // its local value, or it would reopen the cheat hole. So we read the server's
+    // current coins first and preserve that, pushing only the other fields.
+    let serverCoins = null;
+    try {
+      const { data: cur } = await sb.from('saves').select('data,coins').eq('user_id', currentUser.id).maybeSingle();
+      if (cur) {
+        serverCoins = (cur.data && typeof cur.data.coins === 'number') ? cur.data.coins
+                    : (typeof cur.coins === 'number' ? cur.coins : null);
+      }
+    } catch (e) { /* fall through */ }
+
+    // Use server coins as the source of truth; fall back to local only if the
+    // server has none yet (brand-new save). Keep local G.coins in sync too.
+    const coins = (serverCoins != null) ? serverCoins : Math.max(0, Math.floor(G.coins || 0));
+    G.coins = coins;
+
     const payload = {
       user_id: currentUser.id,
-      data: { coins: G.coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag },
-      coins: Math.max(0, Math.min(100000000, Math.floor(G.coins || 0))),
+      data: { coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag },
+      coins: Math.max(0, Math.min(100000000, Math.floor(coins))),
       pokemon_count: ownedIds().length,
     };
     const { error } = await sb.from('saves').upsert(payload, { onConflict: 'user_id' });
     if (error) console.warn('Cloud save error:', error.message);
+    if (typeof updateHUD === 'function') updateHUD();
   } catch (e) { console.warn('Cloud save threw:', e); }
 }
 
@@ -80,7 +97,7 @@ function mergeSaves(local, cloud) {
 function applySaveObject(obj) {
   if (!obj) return;
   G.coins = obj.coins != null ? obj.coins : G.coins;
-  G.pity  = Math.max(0, Math.min(80, Math.floor(obj.pity || 0)));
+  G.pity  = Math.max(0, Math.min(50, Math.floor(obj.pity || 0)));
   G.lang  = (obj.lang === 'en' || obj.lang === 'id') ? obj.lang : G.lang;
   G.collection = obj.collection || {};
   G.bag = obj.bag || {};
@@ -207,4 +224,78 @@ async function claimGift(gift) {
     save();
     return { ok: true };
   } catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+}
+
+// ---- Phase 1: server-authoritative roll ------------------------------------
+// Calls the `roll` Edge Function. Returns { id, rarity } or null on any failure
+// (caller falls back to the local roll so the game never breaks offline).
+async function serverRoll() {
+  if (!cloudEnabled() || !currentUser) return null;
+  try {
+    const { data, error } = await sb.functions.invoke('roll', { body: {} });
+    if (error) { console.warn('serverRoll error:', error.message); return null; }
+    if (data && typeof data.id === 'number') return data;
+    return null;
+  } catch (e) { console.warn('serverRoll threw:', e); return null; }
+}
+
+// ---- Phase 2a: server-authoritative purchases ------------------------------
+// Calls the `buy` Edge Function. On success applies the authoritative coins+bag
+// to G and saves. Returns { ok, coins?, bag?, error? }.
+// Returns { offline:true } when not logged in (caller may use local logic then).
+async function serverBuy(sku) {
+  if (!cloudEnabled() || !currentUser) return { offline: true };
+  try {
+    const { data, error } = await sb.functions.invoke('buy', { body: { sku } });
+    if (error) return { error: error.message };
+    if (data && data.ok) {
+      G.coins = data.coins;
+      if (data.bag) G.bag = data.bag;
+      save();
+      return { ok: true, coins: data.coins };
+    }
+    if (data && data.error === 'insufficient') return { error: 'insufficient', coins: data.coins };
+    return { error: (data && data.error) || 'unknown' };
+  } catch (e) { return { error: String(e) }; }
+}
+
+// ---- Phase 2: server-authoritative duplicate conversion -------------------
+// Calls the `convert` Edge Function. Applies authoritative coins+collection on
+// success. Returns { ok, reward?, coins?, error? } or { offline:true }.
+async function serverConvert(pokeId) {
+  if (!cloudEnabled() || !currentUser) return { offline: true };
+  try {
+    const { data, error } = await sb.functions.invoke('convert', { body: { pokeId } });
+    if (error) return { error: error.message };
+    if (data && data.ok) {
+      G.coins = data.coins;
+      if (data.collection) G.collection = data.collection;
+      save();
+      return { ok: true, reward: data.reward, coins: data.coins };
+    }
+    if (data && data.error === 'no_duplicate') return { error: 'no_duplicate' };
+    return { error: (data && data.error) || 'unknown' };
+  } catch (e) { return { error: String(e) }; }
+}
+
+// ---- Phase 3: server-authoritative catch (flip + record) -------------------
+// Calls the `catch` Edge Function. Server decides heads/tails and, on heads,
+// records the catch + pity. Applies authoritative state to G. Returns the raw
+// result object, or null on failure (caller falls back to a local flip).
+async function serverCatch(pokeId, useBall, wasPity) {
+  if (!cloudEnabled() || !currentUser) return null;
+  try {
+    const { data, error } = await sb.functions.invoke('catch', {
+      body: { pokeId, useBall: !!useBall, wasPity: !!wasPity },
+    });
+    if (error) { console.warn('serverCatch error:', error.message); return null; }
+    if (!data) return null;
+    // Apply authoritative state for display/consistency.
+    if (typeof data.coins === 'number') G.coins = data.coins;
+    if (typeof data.pity === 'number') G.pity = data.pity;
+    if (data.collection) G.collection = data.collection;
+    if (data.bag) G.bag = data.bag;
+    if (data.result) save();
+    return data;
+  } catch (e) { console.warn('serverCatch threw:', e); return null; }
 }

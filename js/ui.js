@@ -129,15 +129,15 @@ function updatePityBar() {
   const bar = document.getElementById('pityBar');
   const label = document.getElementById('pityCount');
   if (!bar || !label) return;
-  const pct = Math.min(G.pity / 80 * 100, 100);
+  const pct = Math.min(G.pity / 50 * 100, 100);
   bar.style.width = pct + '%';
-  label.textContent = `${G.pity}/80`;
+  label.textContent = `${G.pity}/50`;
 
   // Turn bar gold when approaching pity guarantee
-  if (G.pity >= 70) {
+  if (G.pity >= 44) {
     bar.style.background = 'linear-gradient(90deg, #ffd700, #ff8800)';
     label.style.color = '#ffd700';
-  } else if (G.pity >= 40) {
+  } else if (G.pity >= 25) {
     bar.style.background = 'linear-gradient(90deg, #a78bfa, #ffd700)';
     label.style.color = '#a78bfa';
   } else {
@@ -554,6 +554,3 @@ function renderAchievements() {
     ${section(t('ach_types'), all.filter(a => a.group === 'type'))}
   `;
 }
-
-// ---- Passive income: +5 coins every 30 seconds ----
-setInterval(() => { G.coins += 5; save(); updateHUD(); }, 30000);
