@@ -571,3 +571,43 @@ body {
   display: flex; align-items: center; justify-content: center;
   border: 2px solid var(--surface); line-height: 1;
 }
+
+/* ===================== MOVESET EDITOR ===================== */
+.edit-btn {
+  padding: 4px 12px; border-radius: 14px; border: 1px solid var(--accent);
+  background: transparent; color: var(--accent); font-family: 'Rajdhani', sans-serif;
+  font-size: 12px; font-weight: 800; cursor: pointer; letter-spacing: .5px;
+  touch-action: manipulation;
+}
+.edit-btn:active { transform: scale(.96); }
+.loadout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.loadout-slot {
+  background: var(--card2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; min-height: 40px; font-size: 12px;
+}
+.loadout-slot.empty { color: var(--muted); justify-content: center; font-style: italic; opacity: .6; }
+.move-pool { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.move-chip {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid; background: var(--card2);
+  color: var(--text); cursor: pointer; font-family: 'Rajdhani', sans-serif;
+  transition: transform .1s; touch-action: manipulation;
+}
+.move-chip:active { transform: scale(.98); }
+.move-chip.sel { font-weight: 700; }
+.move-chip-name { font-size: 13px; font-weight: 700; }
+.move-chip-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.pool-full { opacity: .4; pointer-events: none; }
+.ability-choice {
+  text-align: left; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card2); cursor: pointer; transition: border-color .15s; touch-action: manipulation;
+}
+.ability-choice.sel { border-color: #c084fc; background: #c084fc12; }
+.ability-choice:active { transform: scale(.99); }
+.save-loadout-btn {
+  width: 100%; padding: 13px; border: none; border-radius: 10px; background: var(--accent);
+  color: #fff; font-family: 'Rajdhani', sans-serif; font-size: 16px; font-weight: 800;
+  cursor: pointer; letter-spacing: .5px; touch-action: manipulation;
+}
+.save-loadout-btn:active { transform: scale(.98); }

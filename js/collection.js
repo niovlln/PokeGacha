@@ -152,6 +152,8 @@ function openDetail(id) {
           </div>`).join('')}
       </div>
 
+      ${count > 0 ? renderLoadoutCard(p.id) : ''}
+
       ${isDupe ? `
         <div class="card2" style="border-color:#ffd70033;background:#ffd70008">
           <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.5px;text-align:center">
@@ -171,6 +173,175 @@ function openDetail(id) {
     </div>
   `;
   document.getElementById('detailPanel').classList.add('open');
+}
+
+// ---- Moveset / Ability editor (Option B per-individual loadout) ----
+// Edits the PRIMARY instance (index 0) of a species in the player's box.
+
+function getPrimaryInstance(speciesId) {
+  const entry = G.collection[speciesId];
+  if (!entry || !Array.isArray(entry.instances) || !entry.instances.length) return null;
+  return entry.instances[0];
+}
+
+// Move type color chip
+function _moveChip(moveKey, onClick, selected) {
+  const m = (typeof moveData === 'function') ? moveData(moveKey) : null;
+  if (!m) return '';
+  const col = TC[m.type] || '#888';
+  const cat = m.category === 'physical' ? '⚔' : m.category === 'special' ? '✦' : '○';
+  const pwr = m.power > 0 ? m.power : '—';
+  return `<button class="move-chip${selected ? ' sel' : ''}" ${onClick ? `onclick="${onClick}"` : ''}
+    style="border-color:${col}${selected ? '' : '55'};${selected ? `background:${col}22` : ''}">
+    <span class="move-chip-name">${m.name}</span>
+    <span class="move-chip-meta"><span class="tbadge" style="background:${col};font-size:8px">${m.type}</span> ${cat} ${pwr}</span>
+  </button>`;
+}
+
+function renderLoadoutCard(speciesId) {
+  const inst = getPrimaryInstance(speciesId);
+  if (!inst) return '';
+  const pool = (typeof legalMovePool === 'function') ? legalMovePool(speciesId) : [];
+  const abils = (typeof legalAbilities === 'function') ? legalAbilities(speciesId) : [];
+  const ab = (typeof abilityData === 'function' && inst.ability) ? abilityData(inst.ability) : null;
+
+  const moveSlots = [0, 1, 2, 3].map(i => {
+    const mk = inst.moves[i];
+    if (mk) {
+      const m = moveData(mk); const col = m ? (TC[m.type] || '#888') : '#888';
+      return `<div class="loadout-slot" style="border-color:${col}55">
+        <span style="color:${col};font-weight:700">${m ? m.name : mk}</span>
+        ${m ? `<span class="tbadge" style="background:${col}">${m.type}</span>` : ''}
+      </div>`;
+    }
+    return `<div class="loadout-slot empty">${t('move_empty')}</div>`;
+  }).join('');
+
+  return `
+    <div class="card2">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;color:var(--gold);letter-spacing:.5px">${t('moveset')}</div>
+        <button class="edit-btn" onclick="openMovesetEditor(${speciesId})">${t('edit')}</button>
+      </div>
+      <div class="loadout-grid">${moveSlots}</div>
+      <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div>
+          <div style="font-size:10px;color:var(--muted);letter-spacing:.5px">${t('ability')}</div>
+          <div style="font-size:14px;font-weight:700;color:#c084fc">${ab ? ab.name : '—'}</div>
+          ${ab ? `<div style="font-size:11px;color:var(--muted);line-height:1.3">${ab.desc}</div>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+// Editor state
+let _editSpecies = null;
+let _editMoves = [];     // working copy of selected move keys
+let _editAbility = null;
+
+function openMovesetEditor(speciesId) {
+  const inst = getPrimaryInstance(speciesId);
+  if (!inst) return;
+  _editSpecies = speciesId;
+  _editMoves = inst.moves.slice(0, 4);
+  _editAbility = inst.ability;
+  renderMovesetEditor();
+  document.getElementById('editorPanel').classList.add('open');
+}
+
+function renderMovesetEditor() {
+  const sid = _editSpecies;
+  const p = getPoke(sid);
+  const pool = (typeof legalMovePool === 'function') ? legalMovePool(sid) : [];
+  const abils = (typeof legalAbilities === 'function') ? legalAbilities(sid) : [];
+  const maxMoves = Math.min(4, pool.length);
+
+  document.getElementById('editorTitle').textContent = `${p.name.toUpperCase()} — ${t('edit_moveset')}`;
+
+  // Selected moves summary (tap to remove)
+  const selected = _editMoves.map((mk, i) =>
+    _moveChip(mk, `removeMove('${mk}')`, true)
+  ).join('') || `<div style="color:var(--muted);font-size:12px;padding:8px">${t('no_moves_selected')}</div>`;
+
+  // Available pool (tap to add; disabled if selected or full)
+  const available = pool.map(mk => {
+    const isSel = _editMoves.includes(mk);
+    const full = _editMoves.length >= maxMoves && !isSel;
+    const onClick = isSel ? `removeMove('${mk}')` : (full ? '' : `addMove('${mk}')`);
+    return `<div class="${full ? 'pool-full' : ''}">${_moveChip(mk, onClick, isSel)}</div>`;
+  }).join('');
+
+  const abilityChoices = abils.map(ak => {
+    const a = abilityData(ak); if (!a) return '';
+    const sel = _editAbility === ak;
+    return `<button class="ability-choice${sel ? ' sel' : ''}" onclick="pickAbility('${ak}')">
+      <div style="font-weight:700;color:${sel ? '#c084fc' : 'var(--text)'}">${a.name}</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.3">${a.desc}</div>
+    </button>`;
+  }).join('');
+
+  document.getElementById('editorBody').innerHTML = `
+    <div style="max-width:440px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:14px">
+      <div class="card2">
+        <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.5px">
+          ${t('selected_moves')} (${_editMoves.length}/${maxMoves})
+        </div>
+        <div class="loadout-grid">${selected}</div>
+      </div>
+
+      <div class="card2">
+        <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.5px">${t('legal_moves')}</div>
+        <div class="move-pool">${available}</div>
+      </div>
+
+      ${abils.length > 1 ? `
+      <div class="card2">
+        <div style="font-size:11px;font-weight:700;color:#c084fc;margin-bottom:8px;letter-spacing:.5px">${t('choose_ability')}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">${abilityChoices}</div>
+      </div>` : `
+      <div class="card2">
+        <div style="font-size:11px;font-weight:700;color:#c084fc;margin-bottom:4px;letter-spacing:.5px">${t('ability')}</div>
+        <div style="font-size:14px;font-weight:700;color:#c084fc">${abilityData(_editAbility) ? abilityData(_editAbility).name : '—'}</div>
+        <div style="font-size:11px;color:var(--muted)">${t('ability_fixed')}</div>
+      </div>`}
+
+      <button class="save-loadout-btn" onclick="saveMoveset()">${t('save_moveset')}</button>
+    </div>`;
+}
+
+function addMove(mk) {
+  const pool = legalMovePool(_editSpecies);
+  const maxMoves = Math.min(4, pool.length);
+  if (_editMoves.length >= maxMoves) { toast(t('moves_full', { n: maxMoves })); return; }
+  if (!_editMoves.includes(mk) && pool.includes(mk)) _editMoves.push(mk);
+  renderMovesetEditor();
+}
+function removeMove(mk) {
+  _editMoves = _editMoves.filter(m => m !== mk);
+  renderMovesetEditor();
+}
+function pickAbility(ak) {
+  if (legalAbilities(_editSpecies).includes(ak)) _editAbility = ak;
+  renderMovesetEditor();
+}
+
+function saveMoveset() {
+  if (!_editMoves.length) { toast(t('need_one_move')); return; }
+  const entry = G.collection[_editSpecies];
+  if (!entry || !Array.isArray(entry.instances) || !entry.instances.length) return;
+  // Sanitize against legal pools before saving (defense in depth).
+  entry.instances[0] = (typeof sanitizeInstance === 'function')
+    ? sanitizeInstance(_editSpecies, { moves: _editMoves, ability: _editAbility })
+    : { moves: _editMoves.slice(0, 4), ability: _editAbility };
+  save();
+  if (typeof scheduleCloudSync === 'function') scheduleCloudSync();
+  closeMovesetEditor();
+  toast(t('moveset_saved'));
+  openDetail(_editSpecies); // refresh the detail card
+}
+
+function closeMovesetEditor() {
+  document.getElementById('editorPanel').classList.remove('open');
 }
 
 async function convertFromDetail(pokeId) {

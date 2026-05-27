@@ -219,6 +219,20 @@
   <div class="detail-body" id="detailBody"></div>
 </div>
 
+<!-- ── MOVESET EDITOR PANEL ── -->
+<div class="detail-panel" id="editorPanel">
+  <div class="detail-header">
+    <button onclick="closeMovesetEditor()"
+      style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text);
+             border-radius:8px;font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;cursor:pointer">
+      ← <span data-i18n="back">Back</span>
+    </button>
+    <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--gold)" id="editorTitle"></span>
+    <div style="width:70px"></div>
+  </div>
+  <div class="detail-body" id="editorBody"></div>
+</div>
+
 <!-- ── TOAST ── -->
 <!-- ── AUTH MODAL ── -->
 <div class="auth-overlay" id="authModal">
@@ -233,6 +247,9 @@
 <!-- ── SCRIPTS (order matters) ── -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="data/pokemon.js"></script>
+<script src="data/moves.js"></script>
+<script src="data/abilities.js"></script>
+<script src="data/learnsets.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/state.js"></script>
 <script src="js/supabase.js"></script>

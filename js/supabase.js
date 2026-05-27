@@ -6,6 +6,7 @@
 // ============================================================
 const SUPABASE_URL = 'https://tcohtkhnlftkjjdbnhxv.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjb2h0a2hubGZ0a2pqZGJuaHh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Nzc5NTUsImV4cCI6MjA5NTI1Mzk1NX0.DxlumzIysZ39_VNN5my1wfwRUp7kl-VtBpdUnu_cVM0';
+
 // Create the client (the global `supabase` comes from the CDN script in index.html).
 let sb = null;
 try {
@@ -269,13 +270,32 @@ async function serverConvert(pokeId) {
     if (error) return { error: error.message };
     if (data && data.ok) {
       G.coins = data.coins;
-      if (data.collection) G.collection = data.collection;
+      if (data.collection) _mergeServerCollection(data.collection);
       save();
       return { ok: true, reward: data.reward, coins: data.coins };
     }
     if (data && data.error === 'no_duplicate') return { error: 'no_duplicate' };
     return { error: (data && data.error) || 'unknown' };
   } catch (e) { return { error: String(e) }; }
+}
+
+// Merge the server's authoritative collection (counts) into G.collection while
+// PRESERVING the client's per-individual battle instances (loadouts), which the
+// server doesn't store. New/removed individuals are reconciled by migrateInstances().
+function _mergeServerCollection(serverColl) {
+  if (!serverColl || typeof serverColl !== 'object') return;
+  const merged = {};
+  for (const id in serverColl) {
+    const sCount = Math.max(0, Math.floor((serverColl[id] && serverColl[id].count) || 0));
+    if (sCount <= 0) continue;
+    const existing = G.collection[id];
+    merged[id] = {
+      count: sCount,
+      instances: (existing && Array.isArray(existing.instances)) ? existing.instances : [],
+    };
+  }
+  G.collection = merged;
+  if (typeof migrateInstances === 'function') migrateInstances(); // backfill/trim to match counts
 }
 
 // ---- Phase 3: server-authoritative catch (flip + record) -------------------
@@ -293,7 +313,7 @@ async function serverCatch(pokeId, useBall, wasPity) {
     // Apply authoritative state for display/consistency.
     if (typeof data.coins === 'number') G.coins = data.coins;
     if (typeof data.pity === 'number') G.pity = data.pity;
-    if (data.collection) G.collection = data.collection;
+    if (data.collection) _mergeServerCollection(data.collection);
     if (data.bag) G.bag = data.bag;
     if (data.result) save();
     return data;

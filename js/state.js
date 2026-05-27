@@ -31,16 +31,61 @@ function _validateState() {
   if (G.lang !== 'en' && G.lang !== 'id') G.lang = 'en';
   if (typeof G.collection !== 'object' || !G.collection) G.collection = {};
   if (typeof G.bag !== 'object' || !G.bag) G.bag = {};
-  // Clamp per-Pokémon counts and drop unknown ids.
+  // Clamp per-Pokémon counts, drop unknown ids, and ensure battle instances.
   for (const id in G.collection) {
     const entry = G.collection[id];
     if (!entry || typeof entry.count !== 'number' || !getPoke(id)) { delete G.collection[id]; continue; }
     entry.count = Math.max(0, Math.min(99999, Math.floor(entry.count)));
   }
+  migrateInstances();
   // Clamp bag counts.
   for (const k in G.bag) {
     if (typeof G.bag[k] !== 'number' || !isFinite(G.bag[k])) { delete G.bag[k]; continue; }
     G.bag[k] = Math.max(0, Math.min(99999, Math.floor(G.bag[k])));
+  }
+}
+
+// ---- Per-individual battle instances (Option B) ----
+// Each owned Pokémon gets an `instances` array; one entry per individual, each
+// with its own { moves:[up to 4 keys], ability }. Existing saves are backfilled
+// on load (migration) so nothing breaks. Battle data (legal pools) is static in
+// learnsets.js / abilities.js — never stored in the save, so it isn't cheatable.
+
+// Build a default loadout for a species: first up-to-4 legal moves + first ability.
+function buildDefaultLoadout(speciesId) {
+  const pool = (typeof legalMovePool === 'function') ? legalMovePool(speciesId) : [];
+  const abils = (typeof legalAbilities === 'function') ? legalAbilities(speciesId) : [];
+  return { moves: pool.slice(0, 4), ability: abils[0] || null };
+}
+
+// Validate a single instance against the species' legal pools (drops illegal picks).
+function sanitizeInstance(speciesId, inst) {
+  const pool = (typeof legalMovePool === 'function') ? legalMovePool(speciesId) : [];
+  const abils = (typeof legalAbilities === 'function') ? legalAbilities(speciesId) : [];
+  let moves = Array.isArray(inst && inst.moves) ? inst.moves.filter(m => pool.includes(m)) : [];
+  // de-dupe, cap at 4
+  moves = [...new Set(moves)].slice(0, 4);
+  if (!moves.length) moves = pool.slice(0, 4);
+  let ability = (inst && abils.includes(inst.ability)) ? inst.ability : (abils[0] || null);
+  return { moves, ability };
+}
+
+// Ensure every owned Pokémon has an instances array matching its count.
+function migrateInstances() {
+  // If battle data isn't loaded yet, skip safely (will run again later).
+  if (typeof legalMovePool !== 'function') return;
+  for (const id in G.collection) {
+    const entry = G.collection[id];
+    if (!entry || entry.count <= 0) continue;
+    if (!Array.isArray(entry.instances)) entry.instances = [];
+    // Backfill missing instances up to count with defaults.
+    while (entry.instances.length < entry.count) {
+      entry.instances.push(buildDefaultLoadout(parseInt(id)));
+    }
+    // Trim extras if count shrank (e.g. duplicate conversion).
+    if (entry.instances.length > entry.count) entry.instances.length = entry.count;
+    // Sanitize each instance against legal pools.
+    entry.instances = entry.instances.map(inst => sanitizeInstance(parseInt(id), inst));
   }
 }
 
@@ -97,8 +142,12 @@ function ownedIds() {
   return Object.keys(G.collection).filter(id => G.collection[id] && G.collection[id].count > 0);
 }
 function addToCollection(poke) {
-  if (!G.collection[poke.id]) G.collection[poke.id] = { count: 0 };
-  G.collection[poke.id].count++;
+  if (!G.collection[poke.id]) G.collection[poke.id] = { count: 0, instances: [] };
+  const entry = G.collection[poke.id];
+  if (!Array.isArray(entry.instances)) entry.instances = [];
+  entry.count++;
+  // Give the new individual a default loadout.
+  entry.instances.push(buildDefaultLoadout(poke.id));
 }
 
 // Conversion: duplicate → coins
@@ -109,6 +158,10 @@ function convertDuplicate(pokeId) {
   const p = getPoke(pokeId);
   const reward = rarityReward(p.rarity);
   entry.count--;
+  // Remove the LAST instance (keep the player's first/edited one).
+  if (Array.isArray(entry.instances) && entry.instances.length > entry.count) {
+    entry.instances.length = entry.count;
+  }
   G.coins += reward;
   save();
   return reward;
