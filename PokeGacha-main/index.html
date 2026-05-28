@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0a0a1a">
+  <meta name="description" content="PokéGacha Gen I – Catch all 151 original Pokémon in a stylish gacha game. Tap the tall grass, flip the coin, and build your Pokédex!">
+  <title>PokéGacha ✦ Gen I</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── HEADER ── -->
+  <div class="hdr">
+    <div class="logo">Poké<em>Gacha</em></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button id="accountBtn" onclick="openAuthModal()" style="position:relative;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:#ffffff10;border:1px solid var(--border);cursor:pointer;padding:0">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+        <span id="mailBadge" class="mail-badge" style="display:none"></span>
+      </button>
+      <div class="coin-pill"><span class="ico-coin"></span> <span id="coinDisplay">500</span></div>
+    </div>
+  </div>
+
+  <!-- ── SCREENS ── -->
+  <div class="screens">
+
+    <!-- ===== GACHA ===== -->
+    <div class="screen active" id="gacha-screen">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px">
+        <div>
+          <div data-i18n="tall_grass" style="font-family:'Orbitron',monospace;font-size:13px;color:var(--gold);letter-spacing:2px">TALL GRASS</div>
+          <div data-i18n="free_encounters" style="font-size:12px;color:var(--muted);margin-top:2px">FREE encounters — tap the grass!</div>
+        </div>
+        <div class="ball-pill"><span class="ico-ball"></span> <span class="ball-count">0</span> <span data-i18n="balls_suffix">Ball(s)</span></div>
+      </div>
+
+      <div style="padding:0 16px 10px;font-size:12px;color:var(--muted)">
+        <span data-i18n="pity">Pity</span>: <span id="pityCount" style="color:var(--gold);font-weight:700">0/50</span>
+        &nbsp;·&nbsp; <span data-i18n="encounters">Encounters</span>: <span id="clickCounter" style="color:var(--text);font-weight:700">0</span>
+        <div class="pity-bar-wrap" style="margin-top:5px">
+          <div class="pity-bar" id="pityBar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div style="padding:0 16px">
+        <button class="incense-btn" id="incenseBtn" onclick="useIncense()" style="display:none">
+          <span class="incense-ico" id="incenseIco"></span>
+          <span data-i18n="incense_use">Use Incense</span>
+          <span class="incense-count">×<span id="incenseBtnCount">0</span></span>
+        </button>
+        <div class="incense-active" id="incenseActive" style="display:none" data-i18n="incense_active_banner">Incense active — next encounter is a new Pokémon!</div>
+      </div>
+
+      <div style="padding:0 16px">
+        <button class="grass-btn" id="grassBtn" onclick="onGrassTap()">
+          <div style="font-size:52px;line-height:1;letter-spacing:4px">🌿🌿🌿</div>
+          <div style="font-size:40px;line-height:1;letter-spacing:8px">🌿🌿</div>
+          <div class="grass-hint" id="grassHint" data-i18n="tap_to_walk">TAP TO WALK</div>
+        </button>
+      </div>
+
+      <div style="padding:12px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="battle-launch-btn pvp" onclick="findOnlineMatch()">
+          🌐 <span data-i18n="pvp_battle">PvP ONLINE</span>
+        </button>
+        <button class="battle-launch-btn team" onclick="openTeamBuilder()">
+          🛡 <span data-i18n="team_builder">TEAM BUILDER</span>
+        </button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 16px 16px">
+        <div class="card2" style="text-align:center">
+          <div style="font-size:9px;font-family:'Orbitron',monospace;color:var(--gold);margin-bottom:8px;letter-spacing:.5px" data-i18n="rates">RATES</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.7">
+            ⭐⭐⭐⭐⭐ <span data-i18n="rate_legendary">Legendary: 1%</span><br>
+            ⭐⭐⭐⭐ <span data-i18n="rate_epic">Epic: 4%</span><br>
+            ⭐⭐⭐ <span data-i18n="rate_rare">Rare: 15%</span><br>
+            ⭐⭐ <span data-i18n="rate_uncommon">Uncommon: 30%</span><br>
+            ⭐ <span data-i18n="rate_common">Common: 50%</span>
+          </div>
+        </div>
+        <div class="card2" style="text-align:center">
+          <div style="font-size:9px;font-family:'Orbitron',monospace;color:var(--gold);margin-bottom:8px;letter-spacing:.5px" data-i18n="catching">CATCHING</div>
+          <div style="font-size:11px;color:var(--muted);line-height:2">
+            <span data-i18n="catch_l1">Tap grass FREE!</span><br>❗ = <span data-i18n="catch_l2">wild Pokémon!</span><br>👑 <span data-i18n="catch_l3">Heads = caught!</span><br>🌙 <span data-i18n="catch_l4">Tails = use ball</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ENCOUNTER OVERLAY (full-screen, above all screens) -->
+    <div class="encounter-overlay" id="encounterOverlay">
+      <div class="enc-field">
+        <div id="wildPokeWrap" class="wild-poke-wrap" style="display:none">
+          <img id="wildSprite" class="sprite" src="" width="130" height="130">
+          <div class="wild-name-plate" id="wildName"></div>
+          <div class="wild-rarity-plate" id="wildRarity"></div>
+          <div id="wildTypes" style="margin-top:4px"></div>
+          <div id="wildOwned" class="wild-owned-plate" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="coin-wrap">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div data-i18n="catching_phase" style="font-family:'Orbitron',monospace;font-size:10px;color:var(--gold)">CATCHING PHASE</div>
+          <div class="ball-pill"><span class="ico-ball"></span> <span class="ball-count">0</span> <span data-i18n="balls_suffix">Ball(s)</span></div>
+        </div>
+        <div class="coin-stage">
+          <div class="coin" id="theCoin"></div>
+        </div>
+        <div class="coin-result" id="coinResult" data-i18n="flip_prompt">Flip the coin to attempt a catch!</div>
+        <div class="enc-btns">
+          <button class="enc-btn flip" id="flipBtn"    onclick="doFlip()"><span class="ico-coin"></span> <span data-i18n="btn_flip">FLIP</span></button>
+          <button class="enc-btn ball" id="ballBtn"    onclick="usePokeballFlip()" style="display:none"><span class="ico-ball"></span> <span data-i18n="btn_useball">USE BALL</span></button>
+          <button class="enc-btn buy"  id="buyBallBtn" onclick="buyBallInEncounter()" style="display:none">💰 <span data-i18n="btn_buyball">BUY BALL</span></button>
+          <button class="enc-btn run"  id="runBtn"     onclick="runAway()">🏃 <span data-i18n="btn_run">RUN</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== COLLECTION ===== -->
+    <div class="screen" id="collection-screen">
+      <div class="stitle">
+        <span data-i18n="my_box">My Box</span> <span id="collCount" style="color:var(--muted);font-size:10px"></span>
+      </div>
+
+      <!-- Filter buttons (hidden until Pokémon are owned) -->
+      <div class="filter-row" id="filterRow" style="display:none">
+        <button class="filter-btn active" id="filter-all" onclick="setCollFilter('all')" data-i18n="f_all">All</button>
+        <button class="filter-btn" id="filter-legendary" onclick="setCollFilter('legendary')" data-i18n="f_legendary">Legendary</button>
+        <button class="filter-btn" id="filter-epic" onclick="setCollFilter('epic')" data-i18n="f_epic">Epic</button>
+        <button class="filter-btn" id="filter-rare" onclick="setCollFilter('rare')" data-i18n="f_rare">Rare</button>
+        <button class="filter-btn" id="filter-uncommon" onclick="setCollFilter('uncommon')" data-i18n="f_uncommon">Uncom</button>
+        <button class="filter-btn" id="filter-common" onclick="setCollFilter('common')" data-i18n="f_common">Common</button>
+      </div>
+
+      <!-- Capture-status filter -->
+      <div class="filter-row" id="statusRow" style="display:none">
+        <button class="filter-btn active" id="status-all" onclick="setCollStatus('all')" data-i18n="s_all">All</button>
+        <button class="filter-btn" id="status-caught" onclick="setCollStatus('caught')" data-i18n="s_caught">Caught</button>
+        <button class="filter-btn" id="status-uncaught" onclick="setCollStatus('uncaught')" data-i18n="s_uncaught">Uncaught</button>
+      </div>
+
+      <!-- Search bar (hidden until Pokémon are owned) -->
+      <div class="search-wrap" id="searchWrap" style="display:none">
+        <input class="search-input" id="collSearchInput" type="search"
+               data-i18n-ph="search_ph" placeholder="Search by name or #id…"
+               oninput="onCollSearch(this.value)">
+      </div>
+
+      <div id="collEmpty" class="empty-state">
+        <div class="big">🎴</div>
+        <p><span data-i18n="no_pokemon">No Pokémon yet!</span><br><span data-i18n="tap_grass">Tap the grass!</span></p>
+      </div>
+      <div id="collGrid" class="coll-grid"></div>
+    </div>
+
+    <!-- ===== SHOP ===== -->
+    <div class="screen" id="shop-screen">
+      <div class="stitle" data-i18n="item_shop">Item Shop</div>
+      <div id="shopContent"></div>
+    </div>
+
+    <!-- ===== ACHIEVEMENTS ===== -->
+    <div class="screen" id="achievements-screen">
+      <div class="stitle" data-i18n="achievements">ACHIEVEMENTS</div>
+      <div id="achievementsContent"></div>
+    </div>
+
+    <!-- ===== SETTINGS ===== -->
+    <div class="screen" id="settings-screen">
+      <div class="stitle" data-i18n="settings">Settings</div>
+      <div id="settingsContent"></div>
+    </div>
+
+  </div><!-- /screens -->
+
+  <!-- ── BATTLE OVERLAY (full screen) ── -->
+  <div class="battle-overlay" id="battleOverlay">
+    <div class="battle-header">
+      <button class="battle-quit" onclick="quitBattle()">✕ <span data-i18n="quit">Quit</span></button>
+      <span style="font-family:'Orbitron',monospace;font-size:11px;color:var(--gold);letter-spacing:1px" data-i18n="battle_title">2v2 BATTLE</span>
+      <div style="width:60px"></div>
+    </div>
+    <div class="battle-stage" id="battleStage"></div>
+    <div class="battle-log" id="battleLog"></div>
+    <div class="battle-controls" id="battleControls"></div>
+  </div>
+
+  <!-- ── TEAM BUILDER OVERLAY ── -->
+  <div class="team-overlay" id="teamOverlay">
+    <div class="battle-header">
+      <button class="battle-quit" onclick="closeTeamBuilder()">✕ <span data-i18n="close">Close</span></button>
+      <span style="font-family:'Orbitron',monospace;font-size:11px;color:var(--gold);letter-spacing:1px" data-i18n="team_builder">TEAM BUILDER</span>
+      <div style="width:60px"></div>
+    </div>
+    <div class="team-body" id="teamBody"></div>
+  </div>
+
+  <!-- ── MATCH FOUND POPUP ── -->
+  <div class="match-found-popup" id="matchFoundPopup">
+    <div class="mf-card">
+      <div class="mf-pulse"></div>
+      <div class="mf-icon">⚔️</div>
+      <div class="mf-title" data-i18n="match_found">MATCH FOUND!</div>
+      <div class="mf-sub" data-i18n="match_found_sub">Get ready to battle…</div>
+    </div>
+  </div>
+
+  <!-- ── BOTTOM NAV ── -->
+  <div class="bot-nav">
+    <button class="nav-item active" id="nav-gacha" onclick="goScreen('gacha')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="3"/></svg>
+      <span data-i18n="nav_gacha">GACHA</span>
+    </button>
+    <button class="nav-item" id="nav-collection" onclick="goScreen('collection')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span data-i18n="nav_box">BOX</span>
+    </button>
+    <button class="nav-item" id="nav-shop" onclick="goScreen('shop')">
+      <svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+      <span data-i18n="nav_shop">SHOP</span>
+    </button>
+    <button class="nav-item" id="nav-achievements" onclick="goScreen('achievements')">
+      <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 0 12 0V3H6z"/><path d="M6 5H3v2a3 3 0 0 0 3 3"/><path d="M18 5h3v2a3 3 0 0 1-3 3"/><line x1="12" y1="15" x2="12" y2="19"/><path d="M8 21h8l-1-2H9z"/></svg>
+      <span data-i18n="nav_achievements">AWARDS</span>
+    </button>
+    <button class="nav-item" id="nav-settings" onclick="goScreen('settings')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span data-i18n="nav_settings">SETTINGS</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── RESULT MODAL ── -->
+<div class="modal-overlay" id="resultModal" onclick="closeModal()">
+  <div id="resultContent" onclick="event.stopPropagation()"></div>
+  <button onclick="closeModal()"
+    style="padding:12px 32px;background:var(--accent);color:#fff;border:none;border-radius:10px;
+           font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:800;cursor:pointer">
+    <span data-i18n="collect">Collect</span> ✓
+  </button>
+</div>
+
+<!-- ── DETAIL PANEL ── -->
+<div class="detail-panel" id="detailPanel">
+  <div class="detail-header">
+    <button onclick="closeDetail()"
+      style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text);
+             border-radius:8px;font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;cursor:pointer">
+      ← <span data-i18n="back">Back</span>
+    </button>
+    <span style="font-family:'Orbitron',monospace;font-size:12px;font-weight:700;color:var(--gold)" id="detailTitle"></span>
+    <div style="width:70px"></div>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
+<!-- ── MOVESET EDITOR PANEL ── -->
+<div class="detail-panel" id="editorPanel">
+  <div class="detail-header">
+    <button onclick="closeMovesetEditor()"
+      style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text);
+             border-radius:8px;font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;cursor:pointer">
+      ← <span data-i18n="back">Back</span>
+    </button>
+    <span style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--gold)" id="editorTitle"></span>
+    <div style="width:70px"></div>
+  </div>
+  <div class="detail-body" id="editorBody"></div>
+</div>
+
+<!-- ── MOVE INFO MODAL ── -->
+<div class="move-info-modal" id="moveInfoModal" onclick="closeMoveInfo()">
+  <div class="move-info-card" onclick="event.stopPropagation()">
+    <div id="moveInfoBody"></div>
+    <button class="move-info-close" onclick="closeMoveInfo()" data-i18n="close">Close</button>
+  </div>
+</div>
+
+<!-- ── TOAST ── -->
+<!-- ── AUTH MODAL ── -->
+<div class="auth-overlay" id="authModal">
+  <div class="auth-card">
+    <button class="auth-close" onclick="closeAuthModal()" aria-label="close">✕</button>
+    <div id="authModalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ── SCRIPTS (order matters) ── -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="data/pokemon.js"></script>
+<script src="data/moves.js"></script>
+<script src="data/moves_id.js"></script>
+<script src="data/abilities.js"></script>
+<script src="data/abilities_id.js"></script>
+<script src="data/learnsets.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/state.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/achievements.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/gacha.js"></script>
+<script src="js/collection.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/battleshared.js"></script>
+<script src="js/pvponline.js"></script>
+<script src="js/team.js"></script>
+<script src="js/shop.js"></script>
+<script>
+  // Boot
+  load();
+  applyStaticI18n();   // fill all [data-i18n] from the saved language
+  document.getElementById('theCoin').innerHTML = coinHTML('coin', 'tails');
+  fillStaticIcons();
+  document.getElementById('incenseIco').innerHTML = incenseIcon(18);
+  if (typeof updateIncenseUI === 'function') updateIncenseUI();
+  updateHUD();
+  renderShop();
+  renderSettings();
+  renderAchievements();
+  // Restore pity bar on load
+  updatePityBar();
+  // Restore cloud session (if configured) and sync
+  if (typeof initAuth === 'function') initAuth();
+  // Enforce login gate: block play until authenticated (see LOGIN_REQUIRED in ui.js).
+  setTimeout(function () {
+    if (typeof enforceLoginGate === 'function') enforceLoginGate();
+  }, 600);
+</script>
+</body>
+</html>

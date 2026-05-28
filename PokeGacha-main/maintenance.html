@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0a1a">
+  <title>PokéGacha ✦ Under Maintenance</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Rajdhani', sans-serif; color: #e8e8f8;
+      background: #0a0a1a;
+      background-image:
+        radial-gradient(ellipse at 20% 20%, #1a0a3a 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, #0a1a3a 0%, transparent 60%);
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 24px;
+    }
+    .wrap { max-width: 420px; }
+    .logo {
+      font-family: 'Orbitron', monospace; font-size: 26px; color: #ffd700;
+      letter-spacing: 3px; margin-bottom: 28px;
+    }
+    .logo em { color: #e94560; font-style: normal; }
+    .ball {
+      width: 96px; height: 96px; margin: 0 auto 28px; position: relative;
+      animation: wobble 1.8s ease-in-out infinite;
+    }
+    @keyframes wobble {
+      0%, 100% { transform: rotate(-8deg); }
+      50%       { transform: rotate(8deg); }
+    }
+    .title {
+      font-family: 'Orbitron', monospace; font-size: 15px; color: #ffd700;
+      letter-spacing: 2px; margin-bottom: 14px;
+    }
+    .msg { font-size: 15px; color: #9aa0ad; line-height: 1.6; }
+    .dots span { animation: blink 1.4s infinite both; }
+    .dots span:nth-child(2) { animation-delay: .2s; }
+    .dots span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">Poké<em>Gacha</em></div>
+    <div class="ball">
+      <svg width="96" height="96" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10.5" fill="#fff" stroke="#15151f" stroke-width="1.2"/>
+        <path d="M1.5 12a10.5 10.5 0 0 1 21 0z" fill="#e94560"/>
+        <line x1="1.5" y1="12" x2="22.5" y2="12" stroke="#15151f" stroke-width="1.2"/>
+        <circle cx="12" cy="12" r="3.4" fill="#fff" stroke="#15151f" stroke-width="1.4"/>
+      </svg>
+    </div>
+    <div class="title">UNDER MAINTENANCE</div>
+    <p class="msg">
+      We're updating the game right now<span class="dots"><span>.</span><span>.</span><span>.</span></span><br>
+      Please check back in a few minutes. Your collection is safe.
+    </p>
+  </div>
+</body>
+</html>
