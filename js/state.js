@@ -7,6 +7,8 @@ const G = {
   lang: 'en',      // 'en' | 'id'
   collection: {},  // pokemonId -> { count }
   bag: {},         // itemId -> count
+  teams: [[], [], [], []], // up to 4 team slots, each up to 6 species ids
+  activeTeam: 0,   // which team slot is selected for PvP (0-3)
 };
 
 // ---- Lightweight integrity check (CASUAL-tamper deterrent ONLY) ----
@@ -38,6 +40,21 @@ function _validateState() {
     entry.count = Math.max(0, Math.min(99999, Math.floor(entry.count)));
   }
   migrateInstances();
+
+  // Migrate an old single-team save (G.team) into the new 4-slot structure.
+  if (Array.isArray(G.team) && (!Array.isArray(G.teams) || !G.teams.some(s => s && s.length))) {
+    G.teams = [G.team.slice(), [], [], []];
+  }
+  delete G.team;
+  // Validate teams: exactly 4 slots; each only owned species, unique, max 6.
+  if (!Array.isArray(G.teams)) G.teams = [[], [], [], []];
+  while (G.teams.length < 4) G.teams.push([]);
+  G.teams = G.teams.slice(0, 4).map(slot =>
+    [...new Set((Array.isArray(slot) ? slot : []).map(id => parseInt(id)))]
+      .filter(id => G.collection[id] && G.collection[id].count > 0)
+      .slice(0, 6)
+  );
+  G.activeTeam = Math.max(0, Math.min(3, parseInt(G.activeTeam) || 0));
   // Clamp bag counts.
   for (const k in G.bag) {
     if (typeof G.bag[k] !== 'number' || !isFinite(G.bag[k])) { delete G.bag[k]; continue; }

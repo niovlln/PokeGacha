@@ -184,20 +184,6 @@ function getPrimaryInstance(speciesId) {
   return entry.instances[0];
 }
 
-// Move type color chip
-function _moveChip(moveKey, onClick, selected) {
-  const m = (typeof moveData === 'function') ? moveData(moveKey) : null;
-  if (!m) return '';
-  const col = TC[m.type] || '#888';
-  const cat = m.category === 'physical' ? '⚔' : m.category === 'special' ? '✦' : '○';
-  const pwr = m.power > 0 ? m.power : '—';
-  return `<button class="move-chip${selected ? ' sel' : ''}" ${onClick ? `onclick="${onClick}"` : ''}
-    style="border-color:${col}${selected ? '' : '55'};${selected ? `background:${col}22` : ''}">
-    <span class="move-chip-name">${m.name}</span>
-    <span class="move-chip-meta"><span class="tbadge" style="background:${col};font-size:8px">${m.type}</span> ${cat} ${pwr}</span>
-  </button>`;
-}
-
 function renderLoadoutCard(speciesId) {
   const inst = getPrimaryInstance(speciesId);
   if (!inst) return '';
@@ -228,23 +214,100 @@ function renderLoadoutCard(speciesId) {
         <div>
           <div style="font-size:10px;color:var(--muted);letter-spacing:.5px">${t('ability')}</div>
           <div style="font-size:14px;font-weight:700;color:#c084fc">${ab ? ab.name : '—'}</div>
-          ${ab ? `<div style="font-size:11px;color:var(--muted);line-height:1.3">${ab.desc}</div>` : ''}
+          ${ab ? `<div style="font-size:11px;color:var(--muted);line-height:1.3">${(typeof abilityDescLocalized === 'function') ? abilityDescLocalized(inst.ability) : ab.desc}</div>` : ''}
         </div>
       </div>
     </div>`;
+}
+
+// SVG icon for a move category: physical (sword), special (starburst), status (gear).
+function categoryIcon(category) {
+  const c = category === 'physical' ? '#fb923c' : category === 'special' ? '#38bdf8' : '#a78bfa';
+  let path;
+  if (category === 'physical') {
+    // crossed-sword style
+    path = '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/>';
+  } else if (category === 'special') {
+    // sparkle / starburst
+    path = '<path d="M12 3v18"/><path d="M3 12h18"/><path d="m5.6 5.6 12.8 12.8"/><path d="m18.4 5.6-12.8 12.8"/>';
+  } else {
+    // status: dotted ring
+    path = '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2" fill="' + c + '"/>';
+  }
+  return `<svg class="cat-icon" viewBox="0 0 24 24" width="13" height="13" style="stroke:${c}">${path}</svg>`;
+}
+
+// A move row in the SELECTED list: name/meta + a delete icon.
+function _selectedMoveRow(mk) {
+  const m = moveData(mk); if (!m) return '';
+  const col = TC[m.type] || '#888';
+  const cat = categoryIcon(m.category);
+  const pwr = m.power > 0 ? m.power : '—';
+  return `<div class="move-row sel" style="border-color:${col}">
+    <div class="move-row-main">
+      <span class="move-row-name" style="color:${col}">${m.name}</span>
+      <span class="move-row-meta"><span class="tbadge" style="background:${col};font-size:8px">${m.type}</span> ${cat} ${pwr}</span>
+    </div>
+    <button class="move-icon del" title="${t('remove')}" onclick="removeMove('${mk}')" aria-label="${t('remove')}">
+      <svg viewBox="0 0 24 24" width="17" height="17"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+    </button>
+  </div>`;
+}
+
+// A move row in the POOL list: tap main area to add/remove + an info icon.
+function _poolMoveRow(mk, isSel, full) {
+  const m = moveData(mk); if (!m) return '';
+  const col = TC[m.type] || '#888';
+  const cat = categoryIcon(m.category);
+  const pwr = m.power > 0 ? m.power : '—';
+  const mainClick = isSel ? `removeMove('${mk}')` : (full ? '' : `addMove('${mk}')`);
+  return `<div class="move-row${isSel ? ' picked' : ''}${full ? ' full' : ''}" style="border-color:${col}${isSel ? '' : '55'}">
+    <div class="move-row-main" ${mainClick ? `onclick="${mainClick}"` : ''}>
+      <span class="move-row-name">${m.name} ${isSel ? '✓' : ''}</span>
+      <span class="move-row-meta"><span class="tbadge" style="background:${col};font-size:8px">${m.type}</span> ${cat} ${pwr}</span>
+    </div>
+    <button class="move-icon info" title="${t('move_info')}" onclick="showMoveInfo('${mk}')" aria-label="${t('move_info')}">
+      <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+    </button>
+  </div>`;
+}
+
+// Move info popup
+function showMoveInfo(mk) {
+  const m = moveData(mk); if (!m) return;
+  const col = TC[m.type] || '#888';
+  const catLabel = m.category === 'physical' ? t('cat_physical') : m.category === 'special' ? t('cat_special') : t('cat_status');
+  document.getElementById('moveInfoBody').innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="font-size:18px;font-weight:800;color:${col}">${m.name}</span>
+      <span class="tbadge" style="background:${col}">${m.type}</span>
+    </div>
+    <div class="move-info-grid">
+      <div><span class="mi-label">${t('mi_category')}</span><span class="mi-val">${catLabel}</span></div>
+      <div><span class="mi-label">${t('mi_power')}</span><span class="mi-val">${m.power > 0 ? m.power : '—'}</span></div>
+      <div><span class="mi-label">${t('mi_accuracy')}</span><span class="mi-val">${m.acc === 0 ? '—' : m.acc + '%'}</span></div>
+      <div><span class="mi-label">${t('mi_pp')}</span><span class="mi-val">${m.pp || '—'}</span></div>
+    </div>
+    ${m.desc ? `<div class="move-info-desc">${(typeof moveDescLocalized === 'function') ? moveDescLocalized(m.desc) : m.desc}</div>` : ''}`;
+  document.getElementById('moveInfoModal').classList.add('open');
+}
+function closeMoveInfo() {
+  document.getElementById('moveInfoModal').classList.remove('open');
 }
 
 // Editor state
 let _editSpecies = null;
 let _editMoves = [];     // working copy of selected move keys
 let _editAbility = null;
+let _editorOrigin = 'box';
 
-function openMovesetEditor(speciesId) {
+function openMovesetEditor(speciesId, origin) {
   const inst = getPrimaryInstance(speciesId);
   if (!inst) return;
   _editSpecies = speciesId;
   _editMoves = inst.moves.slice(0, 4);
   _editAbility = inst.ability;
+  _editorOrigin = origin || 'box'; // 'box' (default) or 'team'
   renderMovesetEditor();
   document.getElementById('editorPanel').classList.add('open');
 }
@@ -258,17 +321,16 @@ function renderMovesetEditor() {
 
   document.getElementById('editorTitle').textContent = `${p.name.toUpperCase()} — ${t('edit_moveset')}`;
 
-  // Selected moves summary (tap to remove)
-  const selected = _editMoves.map((mk, i) =>
-    _moveChip(mk, `removeMove('${mk}')`, true)
-  ).join('') || `<div style="color:var(--muted);font-size:12px;padding:8px">${t('no_moves_selected')}</div>`;
+  // Selected moves (each row has a delete icon)
+  const selected = _editMoves.length
+    ? _editMoves.map(mk => _selectedMoveRow(mk)).join('')
+    : `<div style="color:var(--muted);font-size:12px;padding:8px">${t('no_moves_selected')}</div>`;
 
-  // Available pool (tap to add; disabled if selected or full)
+  // Available pool (each row: tap to add/remove + info icon)
   const available = pool.map(mk => {
     const isSel = _editMoves.includes(mk);
     const full = _editMoves.length >= maxMoves && !isSel;
-    const onClick = isSel ? `removeMove('${mk}')` : (full ? '' : `addMove('${mk}')`);
-    return `<div class="${full ? 'pool-full' : ''}">${_moveChip(mk, onClick, isSel)}</div>`;
+    return _poolMoveRow(mk, isSel, full);
   }).join('');
 
   const abilityChoices = abils.map(ak => {
@@ -276,7 +338,7 @@ function renderMovesetEditor() {
     const sel = _editAbility === ak;
     return `<button class="ability-choice${sel ? ' sel' : ''}" onclick="pickAbility('${ak}')">
       <div style="font-weight:700;color:${sel ? '#c084fc' : 'var(--text)'}">${a.name}</div>
-      <div style="font-size:11px;color:var(--muted);line-height:1.3">${a.desc}</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.3">${(typeof abilityDescLocalized === 'function') ? abilityDescLocalized(ak) : a.desc}</div>
     </button>`;
   }).join('');
 
@@ -286,7 +348,7 @@ function renderMovesetEditor() {
         <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.5px">
           ${t('selected_moves')} (${_editMoves.length}/${maxMoves})
         </div>
-        <div class="loadout-grid">${selected}</div>
+        <div class="move-list">${selected}</div>
       </div>
 
       <div class="card2">
@@ -337,7 +399,12 @@ function saveMoveset() {
   if (typeof scheduleCloudSync === 'function') scheduleCloudSync();
   closeMovesetEditor();
   toast(t('moveset_saved'));
-  openDetail(_editSpecies); // refresh the detail card
+  // Refresh whichever view opened the editor.
+  if (_editorOrigin === 'team') {
+    if (typeof renderTeamBuilder === 'function') renderTeamBuilder();
+  } else {
+    openDetail(_editSpecies); // refresh the Box detail card
+  }
 }
 
 function closeMovesetEditor() {

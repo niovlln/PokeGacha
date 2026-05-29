@@ -52,7 +52,7 @@ async function pushCloudSave() {
 
     const payload = {
       user_id: currentUser.id,
-      data: { coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag },
+      data: { coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag, teams: G.teams, activeTeam: G.activeTeam },
       coins: Math.max(0, Math.min(100000000, Math.floor(coins))),
       pokemon_count: ownedIds().length,
     };
@@ -147,7 +147,7 @@ async function signOutUser() {
 async function onLoggedIn(user) {
   currentUser = user;
   const localSnapshot = JSON.parse(JSON.stringify({
-    coins: G.coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag
+    coins: G.coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag, teams: G.teams, activeTeam: G.activeTeam
   }));
   const cloud = await pullCloudSave();
   const merged = mergeSaves(localSnapshot, cloud);

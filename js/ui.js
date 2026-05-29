@@ -104,6 +104,10 @@ function spriteStatic(id) {
 function spriteAnimated(id) {
   return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${id}.gif`;
 }
+// Back sprite (animated) — used for the player's own Pokémon in battle (facing away).
+function spriteBack(id) {
+  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/back/${id}.gif`;
+}
 function getPoke(id) { return POKEMON.find(p => p.id === parseInt(id)); }
 
 function toast(msg, dur = 2200) {

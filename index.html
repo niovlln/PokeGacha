@@ -63,6 +63,15 @@
         </button>
       </div>
 
+      <div style="padding:12px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="battle-launch-btn pvp" onclick="findOnlineMatch()">
+          🌐 <span data-i18n="pvp_battle">PvP ONLINE</span>
+        </button>
+        <button class="battle-launch-btn team" onclick="openTeamBuilder()">
+          🛡 <span data-i18n="team_builder">TEAM BUILDER</span>
+        </button>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px 16px 16px">
         <div class="card2" style="text-align:center">
           <div style="font-size:9px;font-family:'Orbitron',monospace;color:var(--gold);margin-bottom:8px;letter-spacing:.5px" data-i18n="rates">RATES</div>
@@ -170,6 +179,38 @@
 
   </div><!-- /screens -->
 
+  <!-- ── BATTLE OVERLAY (full screen) ── -->
+  <div class="battle-overlay" id="battleOverlay">
+    <div class="battle-header">
+      <button class="battle-quit" onclick="quitBattle()">✕ <span data-i18n="quit">Quit</span></button>
+      <span style="font-family:'Orbitron',monospace;font-size:11px;color:var(--gold);letter-spacing:1px" data-i18n="battle_title">2v2 BATTLE</span>
+      <div style="width:60px"></div>
+    </div>
+    <div class="battle-stage" id="battleStage"></div>
+    <div class="battle-log" id="battleLog"></div>
+    <div class="battle-controls" id="battleControls"></div>
+  </div>
+
+  <!-- ── TEAM BUILDER OVERLAY ── -->
+  <div class="team-overlay" id="teamOverlay">
+    <div class="battle-header">
+      <button class="battle-quit" onclick="closeTeamBuilder()">✕ <span data-i18n="close">Close</span></button>
+      <span style="font-family:'Orbitron',monospace;font-size:11px;color:var(--gold);letter-spacing:1px" data-i18n="team_builder">TEAM BUILDER</span>
+      <div style="width:60px"></div>
+    </div>
+    <div class="team-body" id="teamBody"></div>
+  </div>
+
+  <!-- ── MATCH FOUND POPUP ── -->
+  <div class="match-found-popup" id="matchFoundPopup">
+    <div class="mf-card">
+      <div class="mf-pulse"></div>
+      <div class="mf-icon">⚔️</div>
+      <div class="mf-title" data-i18n="match_found">MATCH FOUND!</div>
+      <div class="mf-sub" data-i18n="match_found_sub">Get ready to battle…</div>
+    </div>
+  </div>
+
   <!-- ── BOTTOM NAV ── -->
   <div class="bot-nav">
     <button class="nav-item active" id="nav-gacha" onclick="goScreen('gacha')">
@@ -233,6 +274,14 @@
   <div class="detail-body" id="editorBody"></div>
 </div>
 
+<!-- ── MOVE INFO MODAL ── -->
+<div class="move-info-modal" id="moveInfoModal" onclick="closeMoveInfo()">
+  <div class="move-info-card" onclick="event.stopPropagation()">
+    <div id="moveInfoBody"></div>
+    <button class="move-info-close" onclick="closeMoveInfo()" data-i18n="close">Close</button>
+  </div>
+</div>
+
 <!-- ── TOAST ── -->
 <!-- ── AUTH MODAL ── -->
 <div class="auth-overlay" id="authModal">
@@ -248,7 +297,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="data/pokemon.js"></script>
 <script src="data/moves.js"></script>
+<script src="data/moves_id.js"></script>
 <script src="data/abilities.js"></script>
+<script src="data/abilities_id.js"></script>
 <script src="data/learnsets.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/state.js"></script>
@@ -257,6 +308,10 @@
 <script src="js/ui.js"></script>
 <script src="js/gacha.js"></script>
 <script src="js/collection.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/battleshared.js"></script>
+<script src="js/pvponline.js"></script>
+<script src="js/team.js"></script>
 <script src="js/shop.js"></script>
 <script>
   // Boot

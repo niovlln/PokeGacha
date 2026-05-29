@@ -28,7 +28,7 @@ const ABILITIES = {
   early_bird: { name:"Early Bird", desc:"Wakes from sleep faster." },
   effect_spore: { name:"Effect Spore", desc:"Contact may poison, paralyze, or sleep." },
   filter: { name:"Filter", desc:"Reduces super-effective damage." },
-  flame_body: { name:"Flame Body", desc:"Flame Body." },
+  flame_body: { name:"Flame Body", desc:"May burn on contact." },
   flash_fire: { name:"Flash Fire", desc:"Absorbs Fire moves to power up its own." },
   forewarn: { name:"Forewarn", desc:"Reveals the foe's strongest move." },
   friend_guard: { name:"Friend Guard", desc:"Reduces ally damage." },

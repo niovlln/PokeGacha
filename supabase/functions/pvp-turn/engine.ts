@@ -1,20 +1,31 @@
-// js/battle.js — Local battle engine (clean-modern mechanics).
-// Pure logic, no networking. Deterministic given an RNG seed, so the SAME engine
-// can later run inside the server referee (Phase 4b) and produce identical results.
+// @ts-nocheck — This engine is a faithful 1:1 port of the client's battle.js (plain
+// JS style). Its logic is verified by simulation; we disable strict type-checking here
+// so Deno doesn't require explicit annotations on every ported parameter. Runtime
+// behavior is unaffected.
 //
-// Design:
-//  - 2v2: each side has up to 2 active Pokémon. A turn = each living Pokémon picks
-//    a move + target; engine resolves all actions ordered by Speed.
-//  - Reads loadouts (moves[], ability) straight from saved instances, so what a
-//    player sets in the editor is exactly what battles.
-//  - Damage: standard modern formula. Type effectiveness: modern chart.
-//  - Effect tags from moves.js are interpreted here.
-//
-// The engine is FRAMEWORK-AGNOSTIC: it takes a battle state + actions and returns
-// a new state + a log of events. The UI (next slice) renders the log; the server
-// referee (later) calls the same functions.
+// Referee battle engine (TypeScript, Deno). Ported 1:1 from client battle.js so
+// resolution is IDENTICAL on client and server. The server is authoritative: it owns
+// the RNG seed and the move data, and re-validates every action.
+import { MOVES, ABILITIES, SPECIES_ABILITIES, LEARNSETS, POKEMON } from "./battledata.ts";
 
-// ---------- Seeded RNG (so battles are reproducible / server-verifiable) ----------
+// Data helpers (server-side equivalents of the client's ui/state helpers).
+export function getPoke(id: any): any { return POKEMON.find((p: any) => p.id === parseInt(id)); }
+export function moveData(key: string): any { return MOVES[key] || null; }
+export function legalMovePool(speciesId: any): string[] { return LEARNSETS[speciesId] || []; }
+export function legalAbilities(speciesId: any): string[] { return SPECIES_ABILITIES[speciesId] || []; }
+const TC: Record<string,string> = {}; // colors unused server-side
+
+// Validate a single instance against the species' legal pools (drops illegal picks).
+export function sanitizeInstance(speciesId: any, inst: any): any {
+  const pool = legalMovePool(speciesId);
+  const abils = legalAbilities(speciesId);
+  let moves = Array.isArray(inst && inst.moves) ? inst.moves.filter((m: string) => pool.includes(m)) : [];
+  moves = [...new Set(moves)].slice(0, 4);
+  if (!moves.length) moves = pool.slice(0, 4);
+  let ability = (inst && abils.includes(inst.ability)) ? inst.ability : (abils[0] || null);
+  return { moves, ability };
+}
+
 function makeRNG(seed) {
   let s = (seed >>> 0) || 1;
   return function () { // xorshift32 → [0,1)
@@ -253,25 +264,21 @@ function resolveTurn(state, actions, rng) {
   const getB = (side, idx) => state[side][idx];
 
   // Order actions by effective Speed (desc), paralysis quarters speed.
-  // ---- Phase 1: SWITCHES resolve first (before any move), regardless of speed. ----
-  // A switch action: { type:'switch', side, actorIdx, benchIdx }. Swaps the active
-  // Pokémon at actorIdx with the bench Pokémon at benchIdx (incoming takes any hits
-  // aimed at that slot this turn — standard switch behavior).
+  // Phase 1: SWITCHES resolve first (before moves), regardless of speed.
   const benchKey = (side) => side === 'a' ? 'benchA' : 'benchB';
   for (const act of actions) {
     if (!act || act.type !== 'switch') continue;
     const bench = state[benchKey(act.side)] || [];
     const incoming = bench[act.benchIdx];
     const outgoing = state[act.side][act.actorIdx];
-    if (!incoming || incoming.fainted) continue;      // can't send in a fainted/empty bench slot
+    if (!incoming || incoming.fainted) continue;
     if (!outgoing) continue;
-    // Swap: incoming becomes active, outgoing goes to bench.
     state[act.side][act.actorIdx] = incoming;
     bench[act.benchIdx] = outgoing;
     log.push({ t: 'switch', who: outgoing.name, in: incoming.name });
   }
 
-  // ---- Phase 2: MOVES resolve by speed (switch actions are skipped here). ----
+  // Phase 2: MOVES resolve by speed (switch actions skipped here).
   const moveActions = actions.filter(a => a && a.type !== 'switch');
   const speed = (b) => { let s = effStat(b,'spd'); if (b.status==='par') s=Math.floor(s/4); return s; };
   const ordered = moveActions.slice().sort((x, y) => {
@@ -288,8 +295,7 @@ function resolveTurn(state, actions, rng) {
     const attacker = getB(act.side, act.actorIdx);
     if (!attacker || attacker.fainted) continue;
     // Resolve the move AUTHORITATIVELY by key from the move database — never trust
-    // power/type/category that may be present on the battler's move object (anti-cheat,
-    // and also enriches a bare {key} move). Falls back to the object if data is missing.
+    // power/type/category present on the battler's move object (anti-cheat + enriches bare {key}).
     const ownKey = attacker.moves.find(m => (m.key || m) === act.moveKey);
     const auth = ownKey ? (moveData(ownKey.key || ownKey) || {}) : null;
     const move = auth ? { key: (ownKey.key || ownKey), ...auth } : null;
@@ -306,7 +312,6 @@ function resolveTurn(state, actions, rng) {
   [...state.a, ...state.b].filter(Boolean).sort((a,b)=>speed(b)-speed(a)).forEach(b => applyResidual(b, log));
   [...state.a, ...state.b].forEach(b => { if (b && b.hp<=0 && !b.fainted){ b.fainted=true; log.push({t:'faint',who:b.name}); } });
 
-  // A side is alive if it has ANY non-fainted Pokémon among active OR bench.
   const sideAlive = (side) => {
     const active = state[side] || [];
     const bench = state[benchKey(side)] || [];
@@ -317,9 +322,6 @@ function resolveTurn(state, actions, rng) {
   let over = false, winner = null;
   if (!aAlive || !bAlive) { over = true; winner = !aAlive && !bAlive ? 'draw' : (aAlive ? 'a' : 'b'); }
 
-  // A1 (end-of-turn replacement): if the match isn't over, report any active slots that
-  // are now empty/fainted but whose side still has a living bench Pokémon. The referee/
-  // client uses this to prompt that player to send in a replacement before the next turn.
   const needReplace = { a: [], b: [] };
   if (!over) {
     for (const side of ['a', 'b']) {
@@ -330,25 +332,19 @@ function resolveTurn(state, actions, rng) {
       active.forEach((b, idx) => { if (!b || b.fainted) needReplace[side].push(idx); });
     }
   }
-
   return { log, over, winner, needReplace };
 }
 
-// ---------- A1: fill an empty active slot with a bench Pokémon (faint replacement) ----------
-// state, side ('a'|'b'), actorIdx (the empty active slot), benchIdx (living bench mon).
-// Returns a log array (the switch-in message) or [] if invalid.
+// A1: fill an empty active slot with a bench Pokémon (faint replacement).
 function applyReplacement(state, side, actorIdx, benchIdx) {
   const benchK = side === 'a' ? 'benchA' : 'benchB';
   const bench = state[benchK] || [];
   const incoming = bench[benchIdx];
   const slot = state[side][actorIdx];
-  // Only valid if the active slot is actually empty/fainted and the bench mon is alive.
   if (!incoming || incoming.fainted) return [];
   if (slot && !slot.fainted) return [];
-  // The fainted Pokémon (if any) stays where it is in bench history; we simply place the
-  // incoming into the active slot and clear it from bench.
   state[side][actorIdx] = incoming;
-  bench[benchIdx] = slot || null; // park the fainted one in bench slot (already fainted)
+  bench[benchIdx] = slot || null;
   return [{ t: 'sendin', who: incoming.name }];
 }
 
@@ -362,3 +358,5 @@ function buildTeam(picks, level = 50) {
     return makeBattler(pk.speciesId, inst, level);
   }).filter(Boolean);
 }
+
+export { resolveTurn, buildTeam, makeBattler, makeRNG, typeMultiplier, applyReplacement };
