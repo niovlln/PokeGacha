@@ -1,9 +1,0 @@
-{
-  "matchSeed": 1337,
-  "turnNumber": 0,
-  "state": {
-    "a": [{"speciesId":6,"name":"charizard","types":["fire","flying"],"level":50,"hp":138,"maxHp":138,"atk":104,"def":98,"spAtk":114,"spDef":105,"spd":120,"stages":{"atk":0,"def":0,"spAtk":0,"spDef":0,"spd":0,"acc":0,"eva":0},"status":null,"sleepTurns":0,"ability":"blaze","moves":[{"key":"flamethrower"}],"fainted":false}],
-    "b": [{"speciesId":3,"name":"venusaur","types":["grass","poison"],"level":50,"hp":140,"maxHp":140,"atk":102,"def":103,"spAtk":120,"spDef":120,"spd":100,"stages":{"atk":0,"def":0,"spAtk":0,"spDef":0,"spd":0,"acc":0,"eva":0},"status":null,"sleepTurns":0,"ability":"overgrow","moves":[{"key":"razor_leaf"}],"fainted":false}]
-  },
-  "actions": [{"side":"a","actorIdx":0,"moveKey":"flamethrower","targetSide":"b","targetIdx":0}]
-}
