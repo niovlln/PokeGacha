@@ -24,9 +24,12 @@ function battlerSprite(b, side) {
   const onerr = side === 'player'
     ? `this.onerror=null;this.src='${spriteAnimated(b.speciesId)}';this.style.transform='scaleX(-1)';`
     : '';
+  // Proportional sizing: each Pokémon scaled by its real Pokédex height.
+  const baseMax = side === 'player' ? 96 : 64;
+  const sz = (typeof spriteSizeFor === 'function') ? spriteSizeFor(b.speciesId, baseMax) : baseMax;
   return `
-    <div class="field-mon ${side}${b.fainted ? ' fainted' : ''}" id="fieldmon-${b._uid}">
-      <img class="sprite battle-sprite" src="${src}" onerror="${onerr}">
+    <div class="field-mon ${side}${b.fainted ? ' fainted' : ''}" id="fieldmon-${b._uid}" style="--sz:${sz}px">
+      <img class="sprite battle-sprite" src="${src}" onerror="${onerr}" style="width:${sz}px;height:${sz}px">
       <div class="mon-platform"></div>
     </div>`;
 }
@@ -56,8 +59,8 @@ function eventText(e) {
     }
     case 'heal': return t('log_heal', { who: e.who, amt: e.amt });
     case 'recoil': return t('log_recoil', { who: e.who, amt: e.amt });
-    case 'residual': return t('log_residual_' + (e.s === 'brn' ? 'brn' : 'psn'), { who: e.who, amt: e.amt });
-    case 'msg': return t('log_msg_' + (e.code || ''), { who: e.who, move: e.move || '' });
+    case 'residual': return t('log_residual_' + (e.s === 'brn' ? 'brn' : e.s === 'seed' ? 'seed' : e.s === 'trap' ? 'trap' : 'psn'), { who: e.who, amt: e.amt });
+    case 'msg': return t('log_msg_' + (e.code || ''), { who: e.who, move: e.move || '', into: e.into || '' });
     case 'switch': return t('log_switch', { who: e.who, in: e.in });
     case 'sendin': return t('log_sendin', { who: e.who });
     default: return '';

@@ -125,7 +125,7 @@ function renderPickPhase() {
     <button class="battle-start-btn" ${PVP_PICK.picks.length < need ? "disabled" : ""} onclick="submitPicks()">
       ${PVP_PICK.picks.length < need ? t("pvp_pick_more", { n: need - PVP_PICK.picks.length }) : t("pvp_confirm_picks")}
     </button>
-    <button class="battle-cancel-btn" onclick="forfeitPvp()">↩ ${t("pvp_forfeit")}</button>`;
+    <button class="battle-cancel-btn" onclick="forfeitPvp()">${svgIcon("back","currentColor",13)} ${t("pvp_forfeit")}</button>`;
 }
 
 function togglePickDeploy(id) {
@@ -146,9 +146,9 @@ async function submitPicks() {
   // Show a "waiting for opponent" veil (hides any pick info).
   document.getElementById("battleStage").innerHTML =
     `<div class="battle-setup"><div class="battle-setup-title">${t("pvp_waiting_pick")}</div>
-     <div style="text-align:center;margin-top:20px;font-size:34px">⏳</div></div>`;
+     <div style="text-align:center;margin-top:20px">${svgIcon("hourglass","var(--gold)",34)}</div></div>`;
   document.getElementById("battleControls").innerHTML =
-    `<button class="battle-cancel-btn" onclick="forfeitPvp()">↩ ${t("pvp_forfeit")}</button>`;
+    `<button class="battle-cancel-btn" onclick="forfeitPvp()">${svgIcon("back","currentColor",13)} ${t("pvp_forfeit")}</button>`;
 
   try {
     const { data, error } = await sb.functions.invoke("submit-picks", {
@@ -456,10 +456,10 @@ function pushPvpLog(text) {
 function renderSearching(msg) {
   document.getElementById("battleStage").innerHTML =
     `<div class="battle-setup"><div class="battle-setup-title">${msg}</div>
-     <div style="text-align:center;margin-top:20px;font-size:34px">🔍</div></div>`;
+     <div style="text-align:center;margin-top:20px">${svgIcon("search","var(--gold)",34)}</div></div>`;
   document.getElementById("battleLog").innerHTML = "";
   document.getElementById("battleControls").innerHTML =
-    `<button class="battle-cancel-btn" onclick="quitPvp()">↩ ${t("cancel")}</button>`;
+    `<button class="battle-cancel-btn" onclick="quitPvp()">${svgIcon("back","currentColor",13)} ${t("cancel")}</button>`;
 }
 
 // ---- My move selection (only for MY living Pokémon) ----
@@ -467,6 +467,31 @@ function promptPvpMove() {
   if (PVP.over) return;
   PVP.pendingActions = [];
   promptPvpActor(0);
+}
+
+// Detect a B2 forced-action lock on my active Pokémon. Returns null if free to choose.
+// The engine is authoritative and overrides the submitted move; the client just shows
+// the right banner and submits a valid known key so the turn can resolve.
+function pvpLockInfo(actor) {
+  if (!actor) return null;
+  const firstFoe = pvpFar().findIndex(b => b && !b.fainted);
+  const targetIdx = firstFoe >= 0 ? firstFoe : 0;
+  const knownFirst = (actor.moves[0] && (actor.moves[0].key || actor.moves[0])) || "tackle";
+  const moveName = (k) => (moveData(k) || {}).name || k;
+  if (actor._trapped && actor._trapped.turns > 0) {
+    return { text: t("pvp_locked_trapped", { who: actor.name }), forcedKey: knownFirst, targetIdx };
+  }
+  if (actor._bide && actor._bide.turns > 0) {
+    const k = (actor.moves.find(m => { const md = moveData(m.key || m); return md && md.effect === "bide"; }) || {}).key || knownFirst;
+    return { text: t("pvp_locked_bide", { who: actor.name }), forcedKey: k, targetIdx };
+  }
+  if (actor._charging) {
+    return { text: t("pvp_locked_charge", { who: actor.name, move: moveName(actor._charging.moveKey) }), forcedKey: actor._charging.moveKey, targetIdx };
+  }
+  if (actor._lockMove && actor._lockMove.turns > 0) {
+    return { text: t("pvp_locked_move", { who: actor.name, move: moveName(actor._lockMove.moveKey) }), forcedKey: actor._lockMove.moveKey, targetIdx };
+  }
+  return null;
 }
 
 function promptPvpActor(actorIdx) {
@@ -480,6 +505,20 @@ function promptPvpActor(actorIdx) {
   if (activeMon) activeMon.classList.add("active-actor");
 
   const controls = document.getElementById("battleControls");
+
+  // ---- Locked states (B2): the engine forces this Pokémon's action this turn. ----
+  const lock = pvpLockInfo(actor);
+  if (lock) {
+    controls.innerHTML = `
+      <div class="move-prompt pvp-locked">${lock.text}</div>
+      <button class="battle-move-btn pvp-continue" onclick="commitPvpMove(${actorIdx}, '${lock.forcedKey}', '${PVP.foeSide}', ${lock.targetIdx})">
+        <span class="bmb-name">${t("pvp_continue")}</span>
+      </button>
+      <button class="battle-forfeit-link" onclick="confirmForfeitPvp()">${t("pvp_forfeit")}</button>`;
+    PVP._curActor = actorIdx;
+    return;
+  }
+
   const bench = pvpBench();
   const canSwitch = bench.some(b => b && !b.fainted);
   controls.innerHTML = `
@@ -494,7 +533,7 @@ function promptPvpActor(actorIdx) {
         </button>`;
       }).join("")}
     </div>
-    ${canSwitch ? `<button class="battle-switch-btn" onclick="choosePvpSwitch(${actorIdx})">🔄 ${t("pvp_switch")}</button>` : ""}
+    ${canSwitch ? `<button class="battle-switch-btn" onclick="choosePvpSwitch(${actorIdx})">${svgIcon("loop","currentColor",14)} ${t("pvp_switch")}</button>` : ""}
     <button class="battle-forfeit-link" onclick="confirmForfeitPvp()">${t("pvp_forfeit")}</button>`;
   PVP._curActor = actorIdx;
 }
@@ -523,7 +562,7 @@ function choosePvpSwitch(actorIdx) {
         <span class="bmb-meta">HP ${o.b.hp}/${o.b.maxHp}</span>
       </button>`).join("")}
     </div>
-    <button class="battle-cancel-btn" onclick="promptPvpActor(${actorIdx})">↩ ${t("cancel")}</button>`;
+    <button class="battle-cancel-btn" onclick="promptPvpActor(${actorIdx})">${svgIcon("back","currentColor",13)} ${t("cancel")}</button>`;
 }
 
 function commitPvpSwitch(actorIdx, benchIdx) {
@@ -559,7 +598,7 @@ function enterPvpTargetMode(actorIdx, moveKey, targets) {
         <span class="bmb-meta">${tg.kind === "ally" ? t("tgt_ally") : t("tgt_foe")} · HP ${tg.b.hp}/${tg.b.maxHp}</span>
       </button>`).join("")}
     </div>
-    <button class="battle-cancel-btn" onclick="promptPvpActor(${actorIdx})">↩ ${t("cancel")}</button>`;
+    <button class="battle-cancel-btn" onclick="promptPvpActor(${actorIdx})">${svgIcon("back","currentColor",13)} ${t("cancel")}</button>`;
 }
 
 function pickPvpTarget(side, idx) {

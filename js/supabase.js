@@ -6,7 +6,6 @@
 // ============================================================
 const SUPABASE_URL = 'https://tcohtkhnlftkjjdbnhxv.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjb2h0a2hubGZ0a2pqZGJuaHh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Nzc5NTUsImV4cCI6MjA5NTI1Mzk1NX0.DxlumzIysZ39_VNN5my1wfwRUp7kl-VtBpdUnu_cVM0';
-
 // Create the client (the global `supabase` comes from the CDN script in index.html).
 let sb = null;
 try {
@@ -73,8 +72,10 @@ async function pullCloudSave() {
 
 // ---- Merge cloud + local (first login / multi-device) ----------------------
 // Strategy: keep the MORE-COMPLETE save. Collection counts take the max per
-// Pokémon; coins take the higher value; language prefers cloud. This avoids a
-// player losing progress whether it lived locally or in the cloud.
+// Pokémon; coins take the higher value; language prefers cloud. Per-individual
+// battle instances (movesets/abilities) are PRESERVED — preferring the local
+// copy (this device's latest edits) and falling back to the cloud copy — so a
+// player's customized loadouts are never reset by the merge.
 function mergeSaves(local, cloud) {
   if (!cloud) return local;
   if (!local) return cloud;
@@ -85,9 +86,18 @@ function mergeSaves(local, cloud) {
   merged.collection = merged.collection || {};
   const lc = local.collection || {};
   for (const id in lc) {
-    const lCount = (lc[id] && lc[id].count) || 0;
-    const cCount = (merged.collection[id] && merged.collection[id].count) || 0;
-    if (lCount || cCount) merged.collection[id] = { count: Math.max(lCount, cCount) };
+    const l = lc[id];
+    const lCount = (l && l.count) || 0;
+    const cEntry = merged.collection[id];
+    const cCount = (cEntry && cEntry.count) || 0;
+    if (!lCount && !cCount) continue;
+    const count = Math.max(lCount, cCount);
+    // Preserve loadouts: prefer this device's instances, else the cloud's.
+    const instances =
+      (l && Array.isArray(l.instances) && l.instances.length) ? l.instances :
+      (cEntry && Array.isArray(cEntry.instances) && cEntry.instances.length) ? cEntry.instances :
+      undefined;
+    merged.collection[id] = instances ? { count, instances } : { count };
   }
   merged.bag = merged.bag || {};
   const lb = local.bag || {};

@@ -7,9 +7,15 @@ function typeBadge(t) {
 function rarityColor(r) {
   return r === 5 ? 'var(--gold)' : r === 4 ? '#f43f5e' : r === 3 ? '#38bdf8' : r === 2 ? '#4ade80' : 'var(--muted)';
 }
-function rarityStars(r) { return ['', '⭐', '⭐⭐', '⭐⭐⭐', '⭐⭐⭐⭐', '⭐⭐⭐⭐⭐'][r] || ''; }
+function rarityStars(r) {
+  const n = (r >= 1 && r <= 5) ? r : 0;
+  const star = `<svg width="12" height="12" viewBox="0 0 24 24" fill="var(--gold)" style="vertical-align:-1px;display:inline-block"><path d="m12 3 2.6 5.6 6 .7-4.4 4.1 1.2 6L12 18.6 6.6 19.4l1.2-6L3.4 9.3l6-.7L12 3z"/></svg>`;
+  return star.repeat(n);
+}
 function rarityLabel(r) {
-  return r === 5 ? '✨ LEGENDARY ✨' : r === 4 ? '🔮 EPIC 🔮' : r === 3 ? '★ RARE ★' : r === 2 ? 'Uncommon' : 'Common';
+  const spark = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;display:inline-block"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/></svg>`;
+  const crystal = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="vertical-align:-2px;display:inline-block"><path d="M5 9l7-6 7 6-7 12L5 9z"/><path d="M5 9h14M12 3v18"/></svg>`;
+  return r === 5 ? `${spark} LEGENDARY ${spark}` : r === 4 ? `${crystal} EPIC ${crystal}` : r === 3 ? 'RARE' : r === 2 ? 'Uncommon' : 'Common';
 }
 // ---- Inline SVG icons — crisp & consistent across all phones ----
 function pokeballIcon(size = 20) {
@@ -80,6 +86,21 @@ function svgIcon(name, color = 'currentColor', size = 14) {
     trash:  `<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14h12l1-14"/>`,
     check:  `<path d="M20 6 9 17l-5-5"/>`,
     mail:   `<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>`,
+    swords: `<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4-2 2-4-4"/><path d="M9.5 17.5 21 6V3h-3L6.5 14.5"/><path d="m11 19-6-6"/><path d="m8 16-4 4 2 2 4-4"/>`,
+    search: `<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>`,
+    hourglass: `<path d="M6 2h12M6 22h12M6 2c0 5 4 6 6 10 2-4 6-5 6-10M6 22c0-5 4-6 6-10 2 4 6 5 6 10"/>`,
+    back:   `<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/>`,
+    arrow:  `<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>`,
+    x:      `<path d="M18 6 6 18M6 6l12 12"/>`,
+    pencil: `<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>`,
+    shield: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>`,
+    crown:  `<path d="M2 18h20M3 7l4 4 5-7 5 7 4-4-2 11H5L3 7z"/>`,
+    runner: `<circle cx="13" cy="4" r="2"/><path d="m6 20 3-5 3 2 1-5"/><path d="m9 11 4-2 3 3 3 1"/><path d="m5 14 2-3"/>`,
+    cards:  `<rect x="3" y="6" width="11" height="15" rx="2" transform="rotate(-8 8.5 13.5)"/><rect x="10" y="4" width="11" height="15" rx="2" transform="rotate(8 15.5 11.5)"/>`,
+    globe:  `<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>`,
+    exclaim:`<path d="M12 4v10"/><circle cx="12" cy="19" r=".8" fill="${color}"/>`,
+    sparkle:`<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z"/>`,
+    crystal:`<path d="M5 9l7-6 7 6-7 12L5 9z"/><path d="M5 9h14M12 3v18"/>`,
   };
   return `<svg ${o}>${paths[name] || ''}</svg>`;
 }
@@ -220,7 +241,7 @@ function authMarkup(ctx) {
       reason = t('account_offline');
     }
     return `<div style="font-size:12px;color:var(--muted);line-height:1.6">${t('account_offline')}</div>
-            <div style="font-size:11px;color:var(--accent);margin-top:8px;line-height:1.5">⚠ ${reason}</div>`;
+            <div style="font-size:11px;color:var(--accent);margin-top:8px;line-height:1.5">${svgIcon("alert","var(--accent)",13)} ${reason}</div>`;
   }
   if (typeof currentUser !== 'undefined' && currentUser) {
     return `

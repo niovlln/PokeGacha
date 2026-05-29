@@ -998,3 +998,124 @@ body {
   text-decoration: underline; cursor: pointer; opacity: .7;
 }
 .battle-forfeit-link:active { opacity: 1; color: var(--accent); }
+
+/* ===================== BATTLE FIELD REDESIGN (v2) =====================
+   Goals:
+   - Smaller, proportionally-scaled Pokémon sprites (sized inline by battlerSprite).
+   - Slick, thin HUD plates STUCK to the screen edges (not floating boxes).
+   - Every battlefield container is FIXED size (no flexible growth).
+   - Move buttons 25% smaller.
+   ====================================================================== */
+
+/* Stage: fixed height instead of flex-fill */
+.battle-stage {
+  flex: 0 0 auto;
+  height: 280px;          /* fixed battlefield height */
+  overflow: hidden;
+  position: relative;
+}
+
+/* Field rows: anchored to edges of the stage; no longer rely on percentage offsets
+   for unpredictable sprite sizing. */
+.field-row { position: absolute; gap: 0; z-index: 2; }
+.field-row.foes  { top: 16px;   right: 0; left: 0; height: 110px; justify-content: flex-end; padding-right: 10px; }
+.field-row.allies { bottom: 8px; left: 0; right: 0; height: 130px; justify-content: flex-start; padding-left: 10px; }
+.field-mons { gap: 8px; }
+
+/* HUD PLATES — SLICK + THIN + STUCK TO THE EDGES */
+.hp-plate {
+  background: rgba(15,18,30,0.88) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 0 !important;
+  padding: 6px 12px !important;
+  min-width: 0 !important;
+  width: 180px !important;        /* fixed plate width */
+  max-width: 180px !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(6px);
+  color: #e8e8f8 !important;
+}
+.hp-plate-name { font-weight: 700 !important; font-size: 12px !important; color: #fff !important; }
+.hp-plate-lv   { font-size: 9px !important; font-weight: 700 !important; color: rgba(255,255,255,0.55) !important; background: transparent !important; padding: 0 !important; }
+.hp-plate .hp-bar-wrap { height: 5px !important; background: rgba(255,255,255,0.10) !important; border-radius: 3px !important; box-shadow: none !important; }
+.hp-plate .hp-bar      { border-radius: 3px !important; box-shadow: none !important; }
+.hp-plate .hp-text     { font-size: 9px !important; font-weight: 700 !important; color: rgba(255,255,255,0.65) !important; }
+.plate-types { gap: 3px; margin-bottom: 3px; }
+.plate-type  { font-size: 7px !important; padding: 1px 5px !important; border-radius: 3px !important; letter-spacing: .3px; }
+.hp-plate-top { margin-bottom: 2px; gap: 6px; }
+.status-tag { font-size: 8px; padding: 1px 4px; border-radius: 3px; }
+
+/* Foe plate: STUCK to top-left edge, slides in flush against the screen */
+.field-row.foes .field-plates {
+  position: absolute !important;
+  top: 0 !important; left: 0 !important; bottom: auto !important;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  overflow: hidden;
+  display: flex; flex-direction: column; gap: 0;
+}
+.field-row.foes .field-plates .hp-plate {
+  border-left: none !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+/* Player plate: STUCK to bottom-right edge */
+.field-row.allies .field-plates {
+  position: absolute !important;
+  bottom: 0 !important; right: 0 !important; top: auto !important; left: auto !important;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+  overflow: hidden;
+  display: flex; flex-direction: column; gap: 0;
+}
+.field-row.allies .field-plates .hp-plate {
+  border-right: none !important;
+  border-top: 1px solid rgba(255,255,255,0.08) !important;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+/* Sprites: size is set inline per-Pokémon by battlerSprite() now. */
+.field-row.allies .battle-sprite,
+.field-row.foes   .battle-sprite { width: auto; height: auto; }
+
+/* Smaller, less obtrusive platforms (sized via --sz from the inline style). */
+.mon-platform {
+  width: calc(var(--sz, 70px) * 0.7) !important;
+  height: 14px !important;
+}
+
+/* Battle log: fixed height, doesn't grow */
+.battle-log { flex: 0 0 auto !important; height: 78px !important; }
+
+/* Battle controls: fixed size container, doesn't flex-grow */
+.battle-controls {
+  flex: 0 0 auto !important;
+  height: 200px !important;       /* fits prompt + 2x2 moves + switch + forfeit link */
+  min-height: 0 !important;
+  padding: 8px 10px !important;
+  padding-bottom: calc(8px + var(--sb)) !important;
+  overflow: visible;
+}
+
+/* Move buttons — 25% smaller in every dimension that controls visual size */
+.move-buttons { gap: 6px !important; }
+.battle-move-btn {
+  padding: 7px 9px !important;          /* was ~12x14 */
+  border-radius: 10px !important;
+  border-width: 1px !important;
+}
+.bmb-name { font-size: 11px !important; font-weight: 700 !important; }
+.bmb-meta { font-size: 9px !important; gap: 4px !important; }
+.bmb-meta .tbadge { font-size: 7px !important; padding: 1px 4px !important; }
+.move-prompt { font-size: 11px !important; margin-bottom: 6px !important; }
+
+.battle-switch-btn { padding: 7px !important; font-size: 11px !important; margin-top: 5px !important; }
+.battle-forfeit-link { font-size: 10px !important; margin-top: 6px !important; padding: 4px 10px !important; }
+
+/* B2 forced-action lock UI */
+.move-prompt.pvp-locked { color: var(--gold); font-weight: 700; }
+.battle-move-btn.pvp-continue { border-color: var(--gold) !important; text-align: center; }
+.battle-move-btn.pvp-continue .bmb-name { font-size: 14px; letter-spacing: 1px; }

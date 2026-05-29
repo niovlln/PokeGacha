@@ -263,7 +263,7 @@ function _poolMoveRow(mk, isSel, full) {
   const mainClick = isSel ? `removeMove('${mk}')` : (full ? '' : `addMove('${mk}')`);
   return `<div class="move-row${isSel ? ' picked' : ''}${full ? ' full' : ''}" style="border-color:${col}${isSel ? '' : '55'}">
     <div class="move-row-main" ${mainClick ? `onclick="${mainClick}"` : ''}>
-      <span class="move-row-name">${m.name} ${isSel ? '✓' : ''}</span>
+      <span class="move-row-name">${m.name} ${isSel ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;display:inline-block"><path d="M20 6 9 17l-5-5"/></svg>' : ''}</span>
       <span class="move-row-meta"><span class="tbadge" style="background:${col};font-size:8px">${m.type}</span> ${cat} ${pwr}</span>
     </div>
     <button class="move-icon info" title="${t('move_info')}" onclick="showMoveInfo('${mk}')" aria-label="${t('move_info')}">
