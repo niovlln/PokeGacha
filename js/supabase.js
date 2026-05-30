@@ -6,6 +6,7 @@
 // ============================================================
 const SUPABASE_URL = 'https://tcohtkhnlftkjjdbnhxv.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjb2h0a2hubGZ0a2pqZGJuaHh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Nzc5NTUsImV4cCI6MjA5NTI1Mzk1NX0.DxlumzIysZ39_VNN5my1wfwRUp7kl-VtBpdUnu_cVM0';
+
 // Create the client (the global `supabase` comes from the CDN script in index.html).
 let sb = null;
 try {
@@ -18,6 +19,46 @@ try {
 function cloudEnabled() { return !!sb; }
 
 let currentUser = null;
+// The logged-in player's username (display name). Loaded from the profiles table
+// after login; defaults to a friendly "Trainer####" derived from the user id.
+let currentUsername = null;
+
+// A stable, friendly default username derived from the user id (e.g. "Trainer4821").
+function defaultUsername(user) {
+  const id = (user && user.id) || '';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 10000;
+  return 'Trainer' + String(h).padStart(4, '0');
+}
+
+// Load the player's username from the profiles table; create a default row if none.
+async function loadUsername() {
+  if (!cloudEnabled() || !currentUser) { currentUsername = null; return null; }
+  try {
+    const { data } = await sb.from('profiles').select('username').eq('user_id', currentUser.id).maybeSingle();
+    if (data && data.username) { currentUsername = data.username; return currentUsername; }
+    // No profile yet — seed one with a default.
+    const def = defaultUsername(currentUser);
+    await sb.from('profiles').upsert({ user_id: currentUser.id, username: def, updated_at: new Date().toISOString() });
+    currentUsername = def;
+    return def;
+  } catch (e) { currentUsername = defaultUsername(currentUser); return currentUsername; }
+}
+
+// Save a new username (validated + trimmed). Returns { ok } or { error }.
+async function saveUsername(name) {
+  if (!cloudEnabled() || !currentUser) return { error: 'offline' };
+  const clean = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 20);
+  if (clean.length < 1) return { error: 'empty' };
+  try {
+    const { error } = await sb.from('profiles').upsert({
+      user_id: currentUser.id, username: clean, updated_at: new Date().toISOString(),
+    });
+    if (error) return { error: error.message };
+    currentUsername = clean;
+    return { ok: true, username: clean };
+  } catch (e) { return { error: String(e) }; }
+}
 
 // ---- Cloud sync (debounced) ------------------------------------------------
 // save() in state.js writes localStorage instantly; this pushes to the cloud a
@@ -147,6 +188,7 @@ async function signOutUser() {
   await pushCloudSave();          // flush before leaving
   await sb.auth.signOut();
   currentUser = null;
+  currentUsername = null;
   updateAuthUI();
   if (typeof enforceLoginGate === 'function') enforceLoginGate();
   const badge = document.getElementById('mailBadge');
@@ -156,6 +198,7 @@ async function signOutUser() {
 // After login: merge local progress into the cloud save, apply, re-render.
 async function onLoggedIn(user) {
   currentUser = user;
+  await loadUsername();   // fetch/seed the player's display name
   const localSnapshot = JSON.parse(JSON.stringify({
     coins: G.coins, pity: G.pity, lang: G.lang, collection: G.collection, bag: G.bag, teams: G.teams, activeTeam: G.activeTeam
   }));

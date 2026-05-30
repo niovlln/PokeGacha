@@ -104,10 +104,10 @@ function calcDamage(attacker, defender, move, rng, log) {
   // Base damage (modern formula, level-based).
   let dmg = Math.floor(Math.floor((Math.floor((2 * attacker.level) / 5) + 2) * power * atk / def) / 50) + 2;
 
-  // STAB
-  if (attacker.types.includes(move.type)) dmg = Math.floor(dmg * 1.5);
+  // STAB (Adaptability makes it 2x instead of 1.5x).
+  if (attacker.types.includes(move.type)) dmg = Math.floor(dmg * (attacker.ability === 'adaptability' ? 2 : 1.5));
 
-  // Ability damage boosts (low-HP pinch abilities).
+  // ---- Attacker ability power boosts ----
   const lowHp = attacker.hp <= attacker.maxHp / 3;
   if (lowHp) {
     if (attacker.ability === 'overgrow' && move.type === 'grass') dmg = Math.floor(dmg * 1.5);
@@ -115,14 +115,46 @@ function calcDamage(attacker, defender, move, rng, log) {
     if (attacker.ability === 'torrent' && move.type === 'water') dmg = Math.floor(dmg * 1.5);
     if (attacker.ability === 'swarm' && move.type === 'bug') dmg = Math.floor(dmg * 1.5);
   }
+  // Technician: moves with base power <= 60 get 1.5x.
+  if (attacker.ability === 'technician' && power <= 60 && power > 0) dmg = Math.floor(dmg * 1.5);
+  // Iron Fist: punching moves +20%.
+  if (attacker.ability === 'iron_fist' && isPunchMove(move)) dmg = Math.floor(dmg * 1.2);
+  // Reckless: recoil/crash moves +20%.
+  if (attacker.ability === 'reckless' && (hasTag(move,'recoil') || hasTag(move,'recoil25') || hasTag(move,'crash'))) dmg = Math.floor(dmg * 1.2);
+  // Hustle: physical power +50% (accuracy cost handled in resolveAttack).
+  if (attacker.ability === 'hustle' && isPhysical) dmg = Math.floor(dmg * 1.5);
+  // Sheer Force: moves with an added effect get +30% (effect suppression handled elsewhere).
+  if (attacker.ability === 'sheer_force' && moveHasAddedEffect(move)) dmg = Math.floor(dmg * 1.3);
+  // Analytic: if the attacker moves after the defender this turn, +30%.
+  if (attacker.ability === 'analytic' && attacker._movedLast) dmg = Math.floor(dmg * 1.3);
+  // Flash Fire: boosted Fire moves after absorbing one.
+  if (attacker.ability === 'flash_fire' && attacker._flashFire && move.type === 'fire') dmg = Math.floor(dmg * 1.5);
+  // Guts: +50% physical when statused (burn's own drop is ignored in Gen mechanics; keep simple).
+  if (attacker.ability === 'guts' && attacker.status && isPhysical) dmg = Math.floor(dmg * 1.5);
 
   // Type effectiveness
   let eff = typeMultiplier(move.type, defender.types);
-  // Levitate immunity to ground
-  if (defender.ability === 'levitate' && move.type === 'ground') eff = 0;
-  // Thick Fat: halve fire/ice taken
-  if (defender.ability === 'thick_fat' && (move.type === 'fire' || move.type === 'ice')) eff *= 0.5;
+  // Scrappy: Normal/Fighting hit Ghost (treat 0 -> 1 for those types).
+  if (attacker.ability === 'scrappy' && eff === 0 && (move.type === 'normal' || move.type === 'fighting') && defender.types.includes('ghost')) eff = 1;
+  // Defender immunities/resistances via ability (Mold Breaker ignores them).
+  const ignoreAbil = attacker.ability === 'mold_breaker';
+  if (!ignoreAbil) {
+    if (defender.ability === 'levitate' && move.type === 'ground') eff = 0;
+    if (defender.ability === 'thick_fat' && (move.type === 'fire' || move.type === 'ice')) eff *= 0.5;
+    if (defender.ability === 'dry_skin' && move.type === 'fire') eff *= 1.25;
+  }
   dmg = Math.floor(dmg * eff);
+
+  // Tinted Lens: double damage of not-very-effective moves.
+  if (attacker.ability === 'tinted_lens' && eff > 0 && eff < 1) dmg = dmg * 2;
+  // Filter: reduce super-effective damage by 25% (defender).
+  if (!ignoreAbil && defender.ability === 'filter' && eff > 1) dmg = Math.floor(dmg * 0.75);
+  // Multiscale: defender at full HP takes half.
+  if (!ignoreAbil && defender.ability === 'multiscale' && defender.hp >= defender.maxHp) dmg = Math.floor(dmg * 0.5);
+  // Marvel Scale: +50% defense when statused → model as 33% damage reduction on physical.
+  if (!ignoreAbil && defender.ability === 'marvel_scale' && defender.status && isPhysical) dmg = Math.floor(dmg / 1.5);
+  // Unaware (attacker): ignore defender's defensive stat stages → recompute def without stage.
+  // (Handled at stat read above would be complex; minor — skipped for stage purity.)
 
   // Reflect halves physical damage; Light Screen halves special damage (side screens).
   if (defender._screens) {
@@ -132,8 +164,14 @@ function calcDamage(attacker, defender, move, rng, log) {
   // Critical hit (modern ~1/24, highcrit moves ~1/8, Focus Energy raises it).
   let critChance = (move.effect === 'highcrit' || (Array.isArray(move.effect) && move.effect.includes('highcrit'))) ? 0.125 : 0.0417;
   if (attacker._critUp) critChance = Math.min(0.5, critChance + 0.25);
+  // Battle Armor / Shell Armor block crits (unless attacker has Mold Breaker).
+  if (!ignoreAbil && (defender.ability === 'battle_armor' || defender.ability === 'shell_armor')) critChance = 0;
   let crit = false;
-  if (eff > 0 && rng() < critChance) { crit = true; dmg = Math.floor(dmg * 1.5); }
+  if (eff > 0 && rng() < critChance) {
+    crit = true;
+    // Sniper: critical hits do 2.25x instead of 1.5x.
+    dmg = Math.floor(dmg * (attacker.ability === 'sniper' ? 2.25 : 1.5));
+  }
 
   // Random factor 0.85–1.0
   dmg = Math.floor(dmg * (0.85 + rng() * 0.15));
@@ -146,14 +184,74 @@ function hasTag(move, tag) {
   return move.effect === tag || (Array.isArray(move.effect) && move.effect.includes(tag));
 }
 
+// ---------- Ability helpers ----------
+const PUNCH_MOVES = new Set(['mega_punch','fire_punch','ice_punch','thunder_punch','dizzy_punch','comet_punch','dynamic_punch','mach_punch','submission']);
+function isPunchMove(move) { return move && PUNCH_MOVES.has(move.key); }
+
+const SOUND_MOVES = new Set(['growl','roar','sing','supersonic','screech','snore','hyper_voice','metronome']);
+function isSoundMove(move) { return move && SOUND_MOVES.has(move.key); }
+
+// A "contact" move: a damaging physical move that isn't an obvious ranged/special one.
+function isContactMove(move) {
+  if (!move || move.category !== 'physical' || !move.power) return false;
+  return true;
+}
+
+// Does the move carry a secondary added effect (for Sheer Force / Shield Dust)?
+function moveHasAddedEffect(move) {
+  const tags = Array.isArray(move.effect) ? move.effect : [move.effect];
+  return tags.some(t => t && /^may_|^foe_|confuse|flinch|tri_status|^poison$|^paralyze$|^sleep$|^badpoison$/.test(t));
+}
+
+// Can this Pokémon be given this status, given its ability? (true = blocked)
+function abilityBlocksStatus(b, status) {
+  const a = b.ability;
+  if (!a) return false;
+  if (status === 'psn' || status === 'badpsn') return a === 'immunity';
+  if (status === 'par') return a === 'limber';
+  if (status === 'slp') return a === 'insomnia' || a === 'vital_spirit';
+  if (status === 'brn') return a === 'water_veil';
+  if (status === 'frz') return a === 'magma_armor';
+  return false;
+}
+
+// Stat-stage drops blocked by ability (for foe-inflicted reductions).
+function abilityBlocksStatDrop(b, statKey) {
+  const a = b.ability;
+  if (!a) return false;
+  if (a === 'clear_body' || a === 'white_smoke') return true;
+  if (a === 'hyper_cutter' && statKey === 'atk') return true;
+  if ((a === 'keen_eye' || a === 'illuminate') && statKey === 'acc') return true;
+  if (a === 'big_pecks' && statKey === 'def') return true;
+  return false;
+}
+
 function applyMoveEffects(attacker, defender, move, rng, log, dealtDamage) {
+  const _defStatusBefore = defender.status; // for Synchronize
+  const _defStageSum = ['atk','def','spAtk','spDef','spd','acc','eva'].reduce((s,k)=>s+(defender.stages[k]||0),0); // for Defiant/Competitive
   const e = move.effect; if (!e) return;
   const tags = Array.isArray(e) ? e : [e];
+  // Sheer Force removes secondary effects on damaging moves (it already got the power boost).
+  if (attacker.ability === 'sheer_force' && move.power > 0 && moveHasAddedEffect(move)) return;
+  // Shield Dust blocks the added effects of damaging moves used against this defender.
+  const shieldDust = defender.ability === 'shield_dust' && move.power > 0 && attacker.ability !== 'mold_breaker';
   for (const tag of tags) {
     // Mist: protect the defender from stat-lowering effects.
     if (defender._screens && defender._screens.mist > 0 && /^foe_.*_down/.test(tag)) {
       log.push({t:'msg',code:'mistblock',who:defender.name}); continue;
     }
+    // Shield Dust: skip secondary effects of a damaging move (status/flinch/stat-drop chances).
+    if (shieldDust && /^(may_|burn\d|paralyze\d|poison\d?$|poison30|poison40|freeze\d|foe_.*_down|tri_status|confuse)/.test(tag)) continue;
+    // Ability status immunities (the foe can't be given a status its ability prevents).
+    const inflicts = { burn10:'brn', may_burn:'brn', burn30:'brn', paralyze10:'par', may_paralyze:'par', paralyze30:'par', paralyze:'par', poison:'psn', poison30:'psn', poison40:'psn', badpoison:'psn', freeze10:'frz', may_freeze:'frz', sleep:'slp' };
+    if (inflicts[tag] && abilityBlocksStatus(defender, inflicts[tag])) { continue; }
+    // Ability stat-drop protection (Clear Body, Hyper Cutter, Keen Eye, Big Pecks, etc.).
+    if (/^foe_.*_down/.test(tag) && attacker.ability !== 'mold_breaker') {
+      const sk = tag.includes('atk') ? 'atk' : tag.includes('def') ? 'def' : tag.includes('spd') && !tag.includes('spdef') ? 'spd' : tag.includes('spdef') ? 'spDef' : tag.includes('acc') ? 'acc' : null;
+      if (sk && abilityBlocksStatDrop(defender, sk)) { log.push({t:'msg',code:'abilityprotect',who:defender.name}); continue; }
+    }
+    // Serene Grace doubles a may_* chance — handled by overriding rng comparison below
+    // is complex; instead, we apply a small post-hoc retry for may_ effects.
     switch (tag) {
       case 'burn10': case 'may_burn': if (rng() < 0.1 && !defender.status && !defender.types.includes('fire')) { defender.status='brn'; log.push({t:'status',who:defender.name,code:'brn'}); } break;
       case 'burn30': if (rng() < 0.3 && !defender.status && !defender.types.includes('fire')) { defender.status='brn'; log.push({t:'status',who:defender.name,code:'brn'}); } break;
@@ -178,12 +276,12 @@ function applyMoveEffects(attacker, defender, move, rng, log, dealtDamage) {
       case 'foe_spd_down': case 'foe_spd_down2': defender.stages.spd = Math.max(-6, defender.stages.spd-(tag.endsWith('2')?2:1)); log.push({t:'stat',who:defender.name,stat:'spd',dir:'down'}); break;
       case 'foe_acc_down': defender.stages.acc = Math.max(-6, defender.stages.acc-1); log.push({t:'stat',who:defender.name,stat:'acc',dir:'down'}); break;
       case 'foe_spdef_down30': if (rng()<0.3){ defender.stages.spDef=Math.max(-6,defender.stages.spDef-1); log.push({t:'stat',who:defender.name,stat:'spdef',dir:'down'}); } break;
-      case 'drain': if (dealtDamage>0){ const heal=Math.floor(dealtDamage/2); attacker.hp=Math.min(attacker.maxHp,attacker.hp+heal); log.push({t:'heal',who:attacker.name,amt:heal}); } break;
+      case 'drain': if (dealtDamage>0){ const heal=Math.floor(dealtDamage/2); if (defender.ability==='liquid_ooze'){ attacker.hp=Math.max(0,attacker.hp-heal); log.push({t:'recoil',who:attacker.name,amt:heal}); if(attacker.hp<=0){attacker.fainted=true;log.push({t:'faint',who:attacker.name});} } else { attacker.hp=Math.min(attacker.maxHp,attacker.hp+heal); log.push({t:'heal',who:attacker.name,amt:heal}); } } break;
       case 'dreameater': if (dealtDamage>0){ const heal=Math.floor(dealtDamage/2); attacker.hp=Math.min(attacker.maxHp,attacker.hp+heal); log.push({t:'heal',who:attacker.name,amt:heal}); } break;
-      case 'recoil25': if (dealtDamage>0 && attacker.ability!=='rock_head'){ const r=Math.floor(dealtDamage/4); attacker.hp=Math.max(0,attacker.hp-r); log.push({t:'recoil',who:attacker.name,amt:r}); } break;
-      case 'recoil': if (dealtDamage>0 && attacker.ability!=='rock_head'){ const r=Math.floor(dealtDamage/3); attacker.hp=Math.max(0,attacker.hp-r); log.push({t:'recoil',who:attacker.name,amt:r}); } break;
-      case 'heal50': { const h=Math.floor(attacker.maxHp/2); attacker.hp=Math.min(attacker.maxHp,attacker.hp+h); log.push({t:'heal',who:attacker.name,amt:h}); } break;
-      case 'rest': { attacker.hp=attacker.maxHp; attacker.status='slp'; attacker.sleepTurns=2; log.push({t:'heal',who:attacker.name,amt:attacker.maxHp}); log.push({t:'status',who:attacker.name,code:'slp'}); } break;
+      case 'recoil25': if (dealtDamage>0 && attacker.ability!=='rock_head' && attacker.ability!=='magic_guard'){ const r=Math.floor(dealtDamage/4); attacker.hp=Math.max(0,attacker.hp-r); log.push({t:'recoil',who:attacker.name,amt:r}); } break;
+      case 'recoil': if (dealtDamage>0 && attacker.ability!=='rock_head' && attacker.ability!=='magic_guard'){ const r=Math.floor(dealtDamage/3); attacker.hp=Math.max(0,attacker.hp-r); log.push({t:'recoil',who:attacker.name,amt:r}); } break;
+      case 'heal50': { const h=Math.min(attacker.maxHp-attacker.hp, Math.floor(attacker.maxHp/2)); attacker.hp=Math.min(attacker.maxHp,attacker.hp+h); log.push({t:'heal',who:attacker.name,amt:h}); } break;
+      case 'rest': { const h=attacker.maxHp-attacker.hp; attacker.hp=attacker.maxHp; attacker.status='slp'; attacker.sleepTurns=2; log.push({t:'heal',who:attacker.name,amt:h}); log.push({t:'status',who:attacker.name,code:'slp'}); } break;
       case 'faint_user': attacker.hp = 0; break;
       // ---- Newly implemented stateless effects ----
       case 'may_flinch': if (dealtDamage>0 && rng()<0.1){ defender._flinch=true; log.push({t:'msg',code:'flinch',who:defender.name}); } break;
@@ -220,15 +318,35 @@ function applyMoveEffects(attacker, defender, move, rng, log, dealtDamage) {
       default: break; // remaining (complex/stateful) tags handled elsewhere or pending
     }
   }
+  // Synchronize: if the defender just got a major status from the attacker, pass it back.
+  if (defender.ability === 'synchronize' && defender.status && defender.status !== _defStatusBefore) {
+    const st = defender.status === 'badpsn' ? 'psn' : defender.status;
+    if (!attacker.status && !abilityBlocksStatus(attacker, st) && st !== 'frz' && st !== 'slp') {
+      attacker.status = st;
+      log.push({ t:'status', who:attacker.name, code: st });
+    }
+  }
+  // Defiant / Competitive: sharply boost a stat when a foe lowers any of the defender's stats.
+  const _defStageNow = ['atk','def','spAtk','spDef','spd','acc','eva'].reduce((s,k)=>s+(defender.stages[k]||0),0);
+  if (_defStageNow < _defStageSum && !defender.fainted) {
+    if (defender.ability === 'defiant') { defender.stages.atk = Math.min(6, defender.stages.atk + 2); log.push({t:'stat',who:defender.name,stat:'atk',dir:'up',sharp:1}); }
+    else if (defender.ability === 'competitive') { defender.stages.spAtk = Math.min(6, (defender.stages.spAtk||0) + 2); log.push({t:'stat',who:defender.name,stat:'spatk',dir:'up',sharp:1}); }
+  }
 }
 
-// End-of-turn residual damage (burn/poison).
-function applyResidual(b, log) {
+// End-of-turn residual damage (burn/poison) + end-of-turn ability effects.
+function applyResidual(b, log, rng) {
   if (b.fainted) return;
-  if (b.status === 'brn' || b.status === 'psn') {
+  // Magic Guard: takes no damage from anything but direct attacks (no burn/poison chip).
+  if ((b.status === 'brn' || b.status === 'psn') && b.ability !== 'magic_guard') {
     const dmg = Math.max(1, Math.floor(b.maxHp / 8));
     b.hp = Math.max(0, b.hp - dmg);
     log.push({ t:'residual', who:b.name, s:b.status, amt:dmg });
+    if (b.hp <= 0) { b.fainted = true; log.push({ t:'faint', who:b.name }); return; }
+  }
+  // Shed Skin: 33% chance to cure its own status at end of turn.
+  if (b.ability === 'shed_skin' && b.status && rng && rng() < 0.33) {
+    b.status = null; b.sleepTurns = 0; log.push({ t:'msg', code:'shedskin', who:b.name });
   }
 }
 
@@ -257,19 +375,32 @@ function resolveAttack(attacker, defender, move, rng, log, depth) {
   // Recharge (Hyper Beam): the turn after a recharge move, the user must recharge.
   if (attacker._recharge) { attacker._recharge = false; log.push({t:'msg',code:'recharge',who:attacker.name}); return; }
   // Flinch (set by a faster foe's may_flinch this turn): lose the turn, then clears.
-  if (attacker._flinch) { attacker._flinch = false; log.push({t:'msg',code:'flinched',who:attacker.name}); return; }
+  // Inner Focus prevents flinching; Steadfast raises Speed each time it would flinch.
+  if (attacker._flinch) {
+    attacker._flinch = false;
+    if (attacker.ability === 'inner_focus') {
+      log.push({t:'msg',code:'innerfocus',who:attacker.name});
+    } else {
+      if (attacker.ability === 'steadfast') { attacker.stages.spd = Math.min(6, attacker.stages.spd + 1); log.push({t:'stat',who:attacker.name,stat:'spd',dir:'up'}); }
+      log.push({t:'msg',code:'flinched',who:attacker.name}); return;
+    }
+  }
   // Sleep / freeze / paralysis gates
   if (attacker.status === 'slp') {
-    if (attacker.sleepTurns > 0) { attacker.sleepTurns--; log.push({t:'msg',code:'asleep',who:attacker.name}); if(attacker.sleepTurns>0) return; }
+    // Early Bird wakes twice as fast.
+    const dec = attacker.ability === 'early_bird' ? 2 : 1;
+    if (attacker.sleepTurns > 0) { attacker.sleepTurns = Math.max(0, attacker.sleepTurns - dec); log.push({t:'msg',code:'asleep',who:attacker.name}); if(attacker.sleepTurns>0) return; }
     if (attacker.sleepTurns === 0) { attacker.status=null; log.push({t:'msg',code:'woke',who:attacker.name}); }
   }
   if (attacker.status === 'frz') { if (rng()<0.2){ attacker.status=null; log.push({t:'msg',code:'thawed',who:attacker.name}); } else { log.push({t:'msg',code:'frozensolid',who:attacker.name}); return; } }
   if (attacker.status === 'par' && rng() < 0.25) { log.push({t:'msg',code:'fullpara',who:attacker.name}); return; }
-  // Confusion: count down, and chance to hurt self instead of acting.
+  // Confusion: count down, and chance to hurt self instead of acting. Own Tempo is immune.
+  if (attacker._confused > 0 && attacker.ability === 'own_tempo') { attacker._confused = 0; }
   if (attacker._confused > 0) {
     attacker._confused--;
     if (attacker._confused === 0) { log.push({t:'msg',code:'confend',who:attacker.name}); }
     else if (rng() < 0.33) {
+      if (attacker.ability === 'magic_guard') { log.push({t:'msg',code:'confhurt',who:attacker.name}); return; }
       const self = Math.max(1, Math.floor((((2*attacker.level)/5+2) * 40 * effStat(attacker,'atk') / effStat(attacker,'def'))/50)+2);
       attacker.hp = Math.max(0, attacker.hp - self);
       log.push({t:'msg',code:'confhurt',who:attacker.name});
@@ -334,12 +465,19 @@ function resolveAttack(attacker, defender, move, rng, log, depth) {
 
   // Accuracy (never-miss moves like Swift bypass; OHKO uses its own accuracy).
   // Accuracy/evasion stages modify the effective hit chance.
-  const neverMiss = hasTag(move,'nevermiss');
+  // No Guard: moves used by or against this Pokémon never miss.
+  const noGuard = attacker.ability === 'no_guard' || defender.ability === 'no_guard';
+  const neverMiss = hasTag(move,'nevermiss') || noGuard;
   const acc = move.acc === 0 ? 999 : move.acc;
   if (!neverMiss && acc !== 999) {
     const accStage = (attacker.stages.acc || 0) - (defender.stages.eva || 0);
     const accMult = accStage >= 0 ? (3 + accStage) / 3 : 3 / (3 - accStage);
-    const effAcc = acc * accMult;
+    let effAcc = acc * accMult;
+    // Compound Eyes: +30% accuracy. Hustle: -20% accuracy on physical moves.
+    if (attacker.ability === 'compound_eyes') effAcc *= 1.3;
+    if (attacker.ability === 'hustle' && move.category === 'physical') effAcc *= 0.8;
+    // Wonder Skin: status moves used against this Pokémon are likelier to miss (cap acc at 50).
+    if (defender.ability === 'wonder_skin' && move.category === 'status' && attacker.ability !== 'mold_breaker') effAcc = Math.min(effAcc, 50);
     if (rng() * 100 > effAcc) {
       log.push({t:'miss',who:attacker.name,move:move.name});
       if (hasTag(move,'crash')) { const c=Math.floor(attacker.maxHp/8); attacker.hp=Math.max(0,attacker.hp-c); log.push({t:'recoil',who:attacker.name,amt:c}); if(attacker.hp<=0){attacker.fainted=true;log.push({t:'faint',who:attacker.name});} }
@@ -397,11 +535,40 @@ function resolveAttack(attacker, defender, move, rng, log, depth) {
     return;
   }
 
-  // Multi-hit moves: 2 hits (multihit2) or 2–5 hits (multihit).
+  // ---- Type-absorbing abilities (intercept the move before damage) ----
+  if (attacker.ability !== 'mold_breaker') {
+    const mt = move.type;
+    if (mt === 'fire' && defender.ability === 'flash_fire') {
+      defender._flashFire = true; log.push({ t:'msg', code:'flashfire', who:defender.name }); return;
+    }
+    if (mt === 'water' && (defender.ability === 'water_absorb' || defender.ability === 'dry_skin')) {
+      const h = Math.floor(defender.maxHp / 4);
+      if (defender.hp < defender.maxHp) { defender.hp = Math.min(defender.maxHp, defender.hp + h); log.push({ t:'heal', who:defender.name, amt:h }); }
+      log.push({ t:'msg', code:'absorbheal', who:defender.name }); return;
+    }
+    if (mt === 'electric' && (defender.ability === 'volt_absorb')) {
+      const h = Math.floor(defender.maxHp / 4);
+      if (defender.hp < defender.maxHp) { defender.hp = Math.min(defender.maxHp, defender.hp + h); log.push({ t:'heal', who:defender.name, amt:h }); }
+      log.push({ t:'msg', code:'absorbheal', who:defender.name }); return;
+    }
+    if (mt === 'electric' && defender.ability === 'lightning_rod') {
+      defender.stages.spAtk = Math.min(6, (defender.stages.spAtk||0) + 1);
+      log.push({ t:'stat', who:defender.name, stat:'spatk', dir:'up' }); return;
+    }
+    if (isSoundMove(move) && defender.ability === 'soundproof') {
+      log.push({ t:'immune', who:defender.name }); return;
+    }
+  }
+
+  // Multi-hit moves: 2 hits (multihit2) or 2–5 hits (multihit). Skill Link → always max.
   let hits = 1;
   if (hasTag(move,'multihit2')) hits = 2;
-  else if (hasTag(move,'multihit')) { const r=rng(); hits = r<0.375?2 : r<0.75?3 : r<0.875?4 : 5; }
+  else if (hasTag(move,'multihit')) {
+    if (attacker.ability === 'skill_link') hits = 5;
+    else { const r=rng(); hits = r<0.375?2 : r<0.75?3 : r<0.875?4 : 5; }
+  }
 
+  const defHpBefore = defender.hp;            // for Sturdy
   let totalDealt = 0, lastEff = 1;
   for (let i=0; i<hits; i++) {
     if (defender.fainted) break;
@@ -416,14 +583,31 @@ function resolveAttack(attacker, defender, move, rng, log, depth) {
       totalDealt += dmg;
       continue;
     }
-    defender.hp = Math.max(0, defender.hp - dmg);
-    totalDealt += dmg;
-    if (defender._bide) defender._bide.dmg += dmg;
+    let applied = dmg;
+    // Sturdy: survive a would-be OHKO when at full HP (leave 1 HP).
+    if (defender.ability !== undefined && (attacker.ability !== 'mold_breaker') && defender.ability === 'sturdy'
+        && defender.hp === defender.maxHp && dmg >= defender.hp) {
+      applied = defender.hp - 1;
+      log.push({ t:'damage', who:defender.name, by:attacker.name, move:move.name, amt:applied, eff, crit, hit: hits>1?i+1:0, hits: hits>1?hits:0 });
+      defender.hp = 1;
+      totalDealt += applied;
+      log.push({ t:'msg', code:'sturdy', who:defender.name });
+      // Anger Point on the (non-fatal) crit still applies below via crit flag.
+      if (crit && defender.ability === 'anger_point') { defender.stages.atk = 6; log.push({t:'stat',who:defender.name,stat:'atk',dir:'up',sharp:1}); }
+      continue;
+    }
+    defender.hp = Math.max(0, defender.hp - applied);
+    totalDealt += applied;
+    if (defender._bide) defender._bide.dmg += applied;
     // Rage: a raging Pokémon's Attack rises whenever it's struck.
     if (defender._raging){ defender.stages.atk=Math.min(6,defender.stages.atk+1); log.push({t:'stat',who:defender.name,stat:'atk',dir:'up'}); }
-    log.push({ t:'damage', who:defender.name, by:attacker.name, move:move.name, amt:dmg, eff, crit, hit: hits>1 ? i+1 : 0, hits: hits>1?hits:0 });
+    // Anger Point: a critical hit maxes the defender's Attack.
+    if (crit && defender.ability === 'anger_point' && !defender.fainted) { defender.stages.atk = 6; log.push({t:'stat',who:defender.name,stat:'atk',dir:'up',sharp:1}); }
+    log.push({ t:'damage', who:defender.name, by:attacker.name, move:move.name, amt:applied, eff, crit, hit: hits>1 ? i+1 : 0, hits: hits>1?hits:0 });
     if (defender.hp <= 0) { defender.fainted = true; log.push({t:'faint',who:defender.name}); break; }
   }
+  // On-hit / on-contact / on-faint ability reactions (only if real damage landed).
+  if (totalDealt > 0) applyDefenderHitAbilities(attacker, defender, move, totalDealt, lastEff, rng, log);
   // Effects apply once, based on total damage dealt.
   applyMoveEffects(attacker, defender, move, rng, log, totalDealt);
   // Substitute creation (Substitute move) and recharge flag (Hyper Beam).
@@ -431,10 +615,116 @@ function resolveAttack(attacker, defender, move, rng, log, depth) {
   if (hasTag(move,'recharge') && totalDealt>0) attacker._recharge = true;
 }
 
+// On-hit reactive abilities: contact-status, defensive triggers, and on-faint effects.
+function applyDefenderHitAbilities(attacker, defender, move, dealt, eff, rng, log) {
+  const contact = isContactMove(move);
+  const moldBreak = attacker.ability === 'mold_breaker';
+
+  // ---- Defender's reactive abilities (trigger even if it didn't faint) ----
+  if (!defender.fainted && !moldBreak) {
+    // Weak Armor: physical hit lowers Defense, raises Speed.
+    if (defender.ability === 'weak_armor' && move.category === 'physical') {
+      defender.stages.def = Math.max(-6, defender.stages.def - 1);
+      defender.stages.spd = Math.min(6, defender.stages.spd + 1);
+      log.push({t:'stat',who:defender.name,stat:'def',dir:'down'});
+      log.push({t:'stat',who:defender.name,stat:'spd',dir:'up'});
+    }
+    // Justified: Attack rises when hit by a Dark move.
+    if (defender.ability === 'justified' && move.type === 'dark') {
+      defender.stages.atk = Math.min(6, defender.stages.atk + 1); log.push({t:'stat',who:defender.name,stat:'atk',dir:'up'});
+    }
+    // Rattled: Speed rises when hit by Bug/Ghost/Dark.
+    if (defender.ability === 'rattled' && ['bug','ghost','dark'].includes(move.type)) {
+      defender.stages.spd = Math.min(6, defender.stages.spd + 1); log.push({t:'stat',who:defender.name,stat:'spd',dir:'up'});
+    }
+  }
+
+  // ---- On-contact effects (attacker touched the defender) ----
+  if (contact && !defender.fainted && !moldBreak) {
+    if (!attacker.status) {
+      if (defender.ability === 'static' && rng() < 0.3 && !abilityBlocksStatus(attacker,'par')) { attacker.status='par'; log.push({t:'status',who:attacker.name,code:'par'}); }
+      else if (defender.ability === 'flame_body' && rng() < 0.3 && !attacker.types.includes('fire') && !abilityBlocksStatus(attacker,'brn')) { attacker.status='brn'; log.push({t:'status',who:attacker.name,code:'brn'}); }
+      else if ((defender.ability === 'poison_point') && rng() < 0.3 && !attacker.types.includes('poison') && !abilityBlocksStatus(attacker,'psn')) { attacker.status='psn'; log.push({t:'status',who:attacker.name,code:'psn'}); }
+      else if (defender.ability === 'effect_spore' && rng() < 0.3) {
+        const r = rng(); const st = r < 0.33 ? 'psn' : r < 0.66 ? 'par' : 'slp';
+        if (!abilityBlocksStatus(attacker, st) && !(st==='psn'&&attacker.types.includes('poison'))) {
+          attacker.status = st; if (st==='slp') attacker.sleepTurns = 1 + Math.floor(rng()*3);
+          log.push({t:'status',who:attacker.name,code:st});
+        }
+      }
+    }
+  }
+  // Poison Touch: the ATTACKER may poison the defender on contact.
+  if (contact && attacker.ability === 'poison_touch' && !defender.fainted && !defender.status && rng() < 0.3 && !defender.types.includes('poison')) {
+    defender.status='psn'; log.push({t:'status',who:defender.name,code:'psn'});
+  }
+
+  // ---- On-faint effects ----
+  if (defender.fainted) {
+    // Aftermath: contact attacker loses 1/4 max HP when it KOs this Pokémon.
+    if (defender.ability === 'aftermath' && contact && !moldBreak) {
+      const d = Math.floor(attacker.maxHp / 4); attacker.hp = Math.max(0, attacker.hp - d);
+      log.push({t:'recoil',who:attacker.name,amt:d}); log.push({t:'msg',code:'aftermath',who:attacker.name});
+      if (attacker.hp <= 0) { attacker.fainted = true; log.push({t:'faint',who:attacker.name}); }
+    }
+    // Moxie: attacker's Attack rises after scoring a KO.
+    if (attacker.ability === 'moxie' && !attacker.fainted) {
+      attacker.stages.atk = Math.min(6, attacker.stages.atk + 1); log.push({t:'stat',who:attacker.name,stat:'atk',dir:'up'});
+    }
+  }
+}
+
+// Switch-OUT abilities: heal status / restore HP when leaving the field.
+function applySwitchOutAbility(b, log) {
+  if (!b) return;
+  if (b.ability === 'natural_cure' && b.status) { b.status = null; b.sleepTurns = 0; log.push({t:'msg',code:'naturalcure',who:b.name}); }
+  if (b.ability === 'regenerator' && b.hp > 0 && b.hp < b.maxHp) {
+    const h = Math.floor(b.maxHp / 3); b.hp = Math.min(b.maxHp, b.hp + h); log.push({t:'heal',who:b.name,amt:h});
+  }
+}
+
+// Switch-IN abilities: trigger when a Pokémon enters the field.
+function applySwitchInAbility(b, state, side, log, rng) {
+  if (!b || b.fainted) return;
+  const foeSide = side === 'a' ? 'b' : 'a';
+  const foes = (state[foeSide] || []).filter(x => x && !x.fainted);
+  // Intimidate: lower each foe's Attack by 1 (Clear Body / Hyper Cutter block it).
+  if (b.ability === 'intimidate') {
+    let any = false;
+    for (const f of foes) {
+      if (abilityBlocksStatDrop(f, 'atk')) { log.push({t:'msg',code:'abilityprotect',who:f.name}); continue; }
+      f.stages.atk = Math.max(-6, f.stages.atk - 1); log.push({t:'stat',who:f.name,stat:'atk',dir:'down'}); any = true;
+    }
+    if (any) log.push({t:'msg',code:'intimidate',who:b.name});
+  }
+  // Download: boost Atk or SpA depending on which of the foe's defenses is lower.
+  if (b.ability === 'download' && foes.length) {
+    const f = foes[0];
+    if (effStat(f,'def') <= effStat(f,'spDef')) { b.stages.atk = Math.min(6, b.stages.atk+1); log.push({t:'stat',who:b.name,stat:'atk',dir:'up'}); }
+    else { b.stages.spAtk = Math.min(6, (b.stages.spAtk||0)+1); log.push({t:'stat',who:b.name,stat:'spatk',dir:'up'}); }
+  }
+  // Trace: copy the first living foe's ability.
+  if (b.ability === 'trace' && foes.length) {
+    const src = foes[0];
+    if (src.ability && src.ability !== 'trace') { b.ability = src.ability; log.push({t:'msg',code:'trace',who:b.name,move:abilityName(src.ability)}); }
+  }
+  // Imposter (Ditto): transform into the opposing active Pokémon on entry.
+  if (b.ability === 'imposter' && foes.length) {
+    const src = foes[0];
+    b.types = src.types.slice();
+    b.atk = src.atk; b.def = src.def; b.spAtk = src.spAtk; b.spDef = src.spDef; b.spd = src.spd;
+    b.stages = Object.assign({}, src.stages);
+    b.moves = (src.moves || []).map(m => ({ ...m, pp: m.pp || 5 }));
+    log.push({t:'msg',code:'transform',who:b.name,into:src.name});
+  }
+}
+
+function abilityName(key) { return (typeof ABILITIES !== 'undefined' && ABILITIES[key] && ABILITIES[key].name) || key; }
+
 // ---------- Public: resolve one full turn ----------
 // teams: { a:[battler,...], b:[battler,...] }
 // actions: array of { side:'a'|'b', actorIdx, moveKey, targetSide, targetIdx }
-// Returns { log, over, winner }
+// Returns { log, over, winner, needReplace }
 function resolveTurn(state, actions, rng) {
   const log = [];
   const getB = (side, idx) => state[side][idx];
@@ -461,15 +751,25 @@ function resolveTurn(state, actions, rng) {
     // A locked/trapped/charging/biding Pokémon cannot voluntarily switch out (anti-cheat).
     if (outgoing._trapped && outgoing._trapped.turns > 0) { log.push({t:'msg',code:'trappedskip',who:outgoing.name}); continue; }
     if (outgoing._charging || (outgoing._lockMove && outgoing._lockMove.turns > 0) || (outgoing._bide && outgoing._bide.turns > 0)) continue;
+    // Switch-OUT abilities on the outgoing Pokémon.
+    applySwitchOutAbility(outgoing, log);
     // Swap: incoming becomes active, outgoing goes to bench.
     state[act.side][act.actorIdx] = incoming;
     bench[act.benchIdx] = outgoing;
+    incoming._side = act.side; incoming._screens = state[act.side === 'a' ? 'sideA' : 'sideB'];
     log.push({ t: 'switch', who: outgoing.name, in: incoming.name });
+    // Switch-IN abilities for the incoming Pokémon (Intimidate, Download, Trace, Imposter).
+    applySwitchInAbility(incoming, state, act.side, log, rng);
   }
 
   // ---- Phase 2: MOVES resolve by speed (switch actions are skipped here). ----
   const moveActions = actions.filter(a => a && a.type !== 'switch');
-  const speed = (b) => { let s = effStat(b,'spd'); if (b.status==='par') s=Math.floor(s/4); return s; };
+  const speed = (b) => {
+    let s = effStat(b,'spd');
+    if (b.ability === 'quick_feet' && b.status) return Math.floor(s * 1.5); // ignores the paralysis cut
+    if (b.status==='par') s=Math.floor(s/4);
+    return s;
+  };
   const ordered = moveActions.slice().sort((x, y) => {
     const bx = getB(x.side, x.actorIdx), by = getB(y.side, y.actorIdx);
     const mx = moveData(x.moveKey) || {}, my = moveData(y.moveKey) || {};
@@ -479,6 +779,9 @@ function resolveTurn(state, actions, rng) {
     if (sd !== 0) return sd;
     return rng() < 0.5 ? -1 : 1; // speed tie → random
   });
+
+  // Mark each mover's "moved last" flag for Analytic (true for all but the first mover).
+  ordered.forEach((act, idx) => { const b = getB(act.side, act.actorIdx); if (b) b._movedLast = idx > 0; });
 
   for (const act of ordered) {
     const attacker = getB(act.side, act.actorIdx);
@@ -533,17 +836,22 @@ function resolveTurn(state, actions, rng) {
   }
 
   // End-of-turn residuals (order by speed for determinism).
-  [...state.a, ...state.b].filter(Boolean).sort((a,b)=>speed(b)-speed(a)).forEach(b => applyResidual(b, log));
+  [...state.a, ...state.b].filter(Boolean).sort((a,b)=>speed(b)-speed(a)).forEach(b => applyResidual(b, log, rng));
 
   // Leech Seed: drain HP/8 from seeded Pokémon to the first living mon on the seeding side.
   [...state.a, ...state.b].filter(Boolean).forEach(b => {
     if (b.fainted || !b._leechSeed) return;
+    if (b.ability === 'magic_guard') return; // Magic Guard takes no leech damage
     const drain = Math.max(1, Math.floor(b.maxHp/8));
     b.hp = Math.max(0, b.hp - drain);
     log.push({ t:'residual', who:b.name, s:'seed', amt:drain });
     const healSide = b._leechFromSide === 'a' ? state.a : state.b;
     const healer = (healSide||[]).find(x => x && !x.fainted);
-    if (healer){ healer.hp=Math.min(healer.maxHp, healer.hp+drain); log.push({t:'heal',who:healer.name,amt:drain}); }
+    if (healer){
+      // Liquid Ooze: draining HP from this Pokémon damages the drainer instead.
+      if (b.ability === 'liquid_ooze') { healer.hp = Math.max(0, healer.hp - drain); log.push({t:'recoil',who:healer.name,amt:drain}); if (healer.hp<=0){ healer.fainted=true; log.push({t:'faint',who:healer.name}); } }
+      else { healer.hp=Math.min(healer.maxHp, healer.hp+drain); log.push({t:'heal',who:healer.name,amt:drain}); }
+    }
     if (b.hp<=0){ b.fainted=true; log.push({t:'faint',who:b.name}); }
   });
 

@@ -34,6 +34,16 @@ async function findOnlineMatch() {
 
   PVP._teamIds = teamIds;
   _pvpEntered = false;
+  // Reset stale per-match flags from any previous match, so a finished match's
+  // PVP.over=true can't suppress this match's Realtime/poll updates (which would
+  // leave us stuck on the picking "waiting" veil after both players confirm).
+  PVP.over = false;
+  PVP.awaitingResolve = false;
+  PVP._animating = false;
+  PVP._waitingForOpponentReplace = false;
+  PVP._lastReplaceSig = null;
+  PVP._targeting = null;
+  PVP.turnNumber = 0;
   const team = teamIds.map(id => ({
     speciesId: id,
     instance: (G.collection[id] && G.collection[id].instances && G.collection[id].instances[0]) || buildDefaultLoadout(id),
@@ -48,7 +58,7 @@ async function findOnlineMatch() {
     const { data, error } = await sb.functions.invoke("find-match", { body: { team } });
     if (error || !data || !data.ok) { renderSearching(t("pvp_error")); PVP.searching = false; return; }
     if (data.matched) {
-      showMatchFoundThen(data.matchId, data.side);
+      showMatchFoundThen(data.matchId, data.side, { a: data.nameA, b: data.nameB });
     } else {
       waitForMatchAsPlayerA();
     }
@@ -66,6 +76,15 @@ function enterPickingPhase(matchId, side) {
   PVP.matchId = matchId;
   PVP.mySide = side;
   PVP.foeSide = side === "a" ? "b" : "a";
+  // Clear stale flags from a previous match so updates aren't suppressed here.
+  PVP.over = false;
+  PVP.awaitingResolve = false;
+  PVP._animating = false;
+  PVP._waitingForOpponentReplace = false;
+  PVP._lastReplaceSig = null;
+  PVP._targeting = null;
+  PVP.turnNumber = 0;
+  _pvpEntered = false;
   PVP_PICK.picks = [];
   PVP_PICK.pool = (PVP._teamIds || []).slice();
   PVP_PICK.deadline = Date.now() + 60 * 1000;
@@ -159,11 +178,42 @@ async function submitPicks() {
     if (data.started) {
       // Both picked already (or we triggered the build) → battle is ready.
       enterMatch(PVP.matchId, PVP.mySide);
+    } else {
+      // data.waiting → normally the Realtime UPDATE (status→active) triggers enterMatch.
+      // Safety net: in case both clients raced and each saw the other as "not yet
+      // picked" (read-after-write lag), neither built the battle. Re-call submit-picks
+      // a couple of times so one of them re-reads with both picks present and builds it.
+      startPickWaitWatchdog();
     }
-    // else data.waiting → the Realtime UPDATE (status→active) will trigger enterMatch.
   } catch (e) {
     pushPvpLog(t("pvp_error"));
   }
+}
+
+// Watchdog for the picking "waiting" state: re-checks the match and, if it's somehow
+// still in 'picking' after both players confirmed, re-submits to force the build.
+function startPickWaitWatchdog() {
+  if (PVP._pickWatchdog) clearInterval(PVP._pickWatchdog);
+  let tries = 0;
+  PVP._pickWatchdog = setInterval(async () => {
+    // Stop once we've entered battle, left, or the match changed.
+    if (_pvpEntered || PVP.over || !PVP.matchId) { clearInterval(PVP._pickWatchdog); PVP._pickWatchdog = null; return; }
+    tries++;
+    try {
+      const { data: m } = await sb.from("matches").select("id,status,state").eq("id", PVP.matchId).single();
+      if (m && m.status === "active" && m.state) {
+        clearInterval(PVP._pickWatchdog); PVP._pickWatchdog = null;
+        enterMatch(PVP.matchId, PVP.mySide);
+        return;
+      }
+      if (m && m.status === "picking") {
+        // Still picking — re-submit my picks so the server re-evaluates "both picked"
+        // (closes the rare deadlock where both initial submits missed each other).
+        await sb.functions.invoke("submit-picks", { body: { matchId: PVP.matchId, picks: PVP_PICK.picks } });
+      }
+    } catch (e) {}
+    if (tries >= 6) { clearInterval(PVP._pickWatchdog); PVP._pickWatchdog = null; }
+  }, 1500);
 }
 
 // If we're waiting in queue, an opponent calling find-match will create a match with
@@ -217,16 +267,42 @@ async function catchUpMatch(enter) {
 }
 
 // ---- Match Found popup, then enter ----
-function showMatchFoundThen(matchId, side) {
+// names: { a, b } usernames from the match row (player_a / player_b).
+async function showMatchFoundThen(matchId, side, names) {
   PVP.searching = false;
   if (PVP._waitChannel) { try { sb.removeChannel(PVP._waitChannel); } catch (e) {} PVP._waitChannel = null; }
+
+  // Resolve both usernames. If not passed in (e.g. the waiting player), read them
+  // off the match row, which find-match stamped with name_a / name_b.
+  let nameA = names && names.a, nameB = names && names.b;
+  if ((!nameA || !nameB) && typeof sb !== "undefined") {
+    try {
+      const { data } = await sb.from("matches").select("name_a,name_b").eq("id", matchId).single();
+      if (data) { nameA = nameA || data.name_a; nameB = nameB || data.name_b; }
+    } catch (e) {}
+  }
+  // My name vs the opponent's, oriented to MY side.
+  const myName = side === "a" ? nameA : nameB;
+  const foeName = side === "a" ? nameB : nameA;
+
   const overlay = document.getElementById("matchFoundPopup");
   if (overlay) {
+    const left = document.getElementById("mfNameLeft");
+    const right = document.getElementById("mfNameRight");
+    if (left) left.textContent = myName || t("you") || "You";
+    if (right) right.textContent = foeName || t("opponent") || "Opponent";
+    const vs = document.getElementById("mfVs");
+    if (vs) vs.textContent = t("match_vs");
+    overlay.classList.remove("play");
     overlay.classList.add("open");
+    // Force reflow so removing/adding .play restarts the animation cleanly.
+    void overlay.offsetWidth;
+    overlay.classList.add("play");
     setTimeout(() => {
       overlay.classList.remove("open");
+      overlay.classList.remove("play");
       enterPickingPhase(matchId, side);
-    }, 1800);
+    }, 2400);
   } else {
     enterPickingPhase(matchId, side);
   }
@@ -245,6 +321,7 @@ async function enterMatch(matchId, side) {
   // Clear transient per-match flags so a previous match's state can't leak in.
   PVP._lastReplaceSig = null;
   PVP._waitingForOpponentReplace = false;
+  if (PVP._replaceWatch) { clearInterval(PVP._replaceWatch); PVP._replaceWatch = null; }
   PVP._targeting = null;
   PVP._animating = false;
 
@@ -254,8 +331,9 @@ async function enterMatch(matchId, side) {
   if (m.status === "picking" || !m.state) return; // battle not built yet; wait for Realtime
   _pvpEntered = true;
 
-  // Stop the picking countdown if still running.
+  // Stop the picking countdown / watchdog if still running.
   if (PVP_PICK.timer) { clearInterval(PVP_PICK.timer); PVP_PICK.timer = null; }
+  if (PVP._pickWatchdog) { clearInterval(PVP._pickWatchdog); PVP._pickWatchdog = null; }
 
   PVP.state = m.state;
   PVP.turnNumber = m.turn_number;
@@ -303,6 +381,44 @@ function subscribeToMatch(matchId) {
 
   // Heartbeat: stamp liveness every 5s and watch the opponent's heartbeat.
   startHeartbeat(matchId);
+}
+
+// Backstop for the "waiting for opponent to send in" state: if a Realtime/poll
+// update is ever missed, this re-reads the match and releases me as soon as the
+// opponent's replacement is in (no more outstanding need on their side), so the
+// battle can never get permanently stuck waiting for a send-in.
+function startReplaceWatchdog() {
+  if (PVP._replaceWatch) clearInterval(PVP._replaceWatch);
+  PVP._replaceWatch = setInterval(async () => {
+    if (!PVP._waitingForOpponentReplace || PVP.over || !PVP.matchId) {
+      clearInterval(PVP._replaceWatch); PVP._replaceWatch = null; return;
+    }
+    if (PVP._animating) return; // let any in-progress animation settle first
+    try {
+      const { data: m } = await sb.from("matches").select("turn_number,status,state,pending,last_log,winner").eq("id", PVP.matchId).single();
+      if (!m) return;
+      // A new turn or a finish supersedes the wait — let onMatchUpdate handle it.
+      if (m.turn_number > PVP.turnNumber || m.status === "finished") { onMatchUpdate(m); return; }
+      const need = (m.pending && m.pending.needReplace) || { a: [], b: [] };
+      const myNeed = (need[PVP.mySide] || []);
+      const theirNeed = (need[PVP.foeSide] || []);
+      if (myNeed.length) {
+        // It's actually MY replacement that's outstanding — show the picker.
+        clearInterval(PVP._replaceWatch); PVP._replaceWatch = null;
+        PVP._waitingForOpponentReplace = false;
+        if (m.state) PVP.state = m.state;
+        renderPvpStage();
+        promptReplacement(myNeed);
+      } else if (!theirNeed.length) {
+        // Opponent has finished sending in — release me to move.
+        clearInterval(PVP._replaceWatch); PVP._replaceWatch = null;
+        PVP._waitingForOpponentReplace = false;
+        if (m.state) PVP.state = m.state;
+        renderPvpStage();
+        promptPvpMove();
+      }
+    } catch (e) {}
+  }, 2000);
 }
 
 // ---- Heartbeat / disconnect detection ----
@@ -382,6 +498,10 @@ function onMatchUpdate(m) {
   if (m.turn_number > PVP.turnNumber) {
     PVP.turnNumber = m.turn_number;
     PVP.awaitingResolve = false;
+    // A new turn invalidates any prior replacement signature — this turn's
+    // send-ins must be processed fresh (otherwise an identical-looking send-in
+    // from a later turn gets skipped and the waiting player is stuck forever).
+    PVP._lastReplaceSig = null;
     const newState = m.state;
     const log = m.last_log || [];
     const needReplace = (m.pending && m.pending.needReplace) || { a: [], b: [] };
@@ -412,6 +532,9 @@ function onMatchUpdate(m) {
   const lastLog = m.last_log || [];
   const isReplacement = lastLog.length && lastLog.every(e => e.t === "sendin");
   if (isReplacement && m.state && m.state.a && m.state.b) {
+    // Don't process a replacement update while a turn is still animating — let the
+    // animation finish (it ends by prompting/waiting based on needReplace itself).
+    if (PVP._animating) return;
     // Idempotency: polling may deliver the same replacement row repeatedly. Build a
     // signature and skip if we've already processed this exact replacement.
     const sig = JSON.stringify(lastLog) + "|" + (m.pending ? JSON.stringify(m.pending.needReplace) : "");
@@ -424,13 +547,16 @@ function onMatchUpdate(m) {
     renderPvpStage();
     if (myNeed.length) {
       // I still owe a replacement — go straight to the bench picker.
-      promptReplacement(myNeed);
-    } else if (!PVP.awaitingResolve && !PVP._targeting && !PVP.over && PVP._waitingForOpponentReplace) {
-      // Opponent just sent in and now it's my move — show the picker directly. The
-      // new foe is already on the field; we don't flash the log box for a switch.
       PVP._waitingForOpponentReplace = false;
+      if (PVP._replaceWatch) { clearInterval(PVP._replaceWatch); PVP._replaceWatch = null; }
+      promptReplacement(myNeed);
+    } else if (PVP._waitingForOpponentReplace && !PVP.awaitingResolve && !PVP._targeting && !PVP.over) {
+      // I was waiting for the opponent to send in, and they have — now it's my move.
+      PVP._waitingForOpponentReplace = false;
+      if (PVP._replaceWatch) { clearInterval(PVP._replaceWatch); PVP._replaceWatch = null; }
       promptPvpMove();
     }
+    return;
   }
 }
 
@@ -783,6 +909,7 @@ function animatePvpTurn(newState, log, finished, winner, needReplace) {
         showBattlePicker();
         document.getElementById("battleControls").innerHTML =
           `<div class="move-prompt">${t("pvp_waiting_replace")}</div>`;
+        startReplaceWatchdog();
         return;
       }
       promptPvpMove();
@@ -805,42 +932,48 @@ function animatePvpTurn(newState, log, finished, winner, needReplace) {
     if (e.t === "move") {
       // A new action begins — clear the box so this Pokémon's action shows alone,
       // then announce the move AS the attacker lunges/casts (same beat as the motion).
+      // Give the lunge time to play and the line time to read before the hit lands.
       const cat = moveCategoryByName(e.move);
       const contact = cat !== "status";
       animateAttacker(e.who, contact);
       pushPvpLog(eventText(e), true);
-      delay = contact ? 240 : 520;
+      delay = contact ? 480 : 700;
     } else if (e.t === "damage") {
       // Follow-up of the current action — append under the move line. The damage
-      // line lands the instant the hit connects (spark + flash).
+      // line lands the instant the hit connects (spark + flash). Hold long enough
+      // for the HP-bar drain (~380ms) to visibly finish before the next event.
       updatePvpBattlerInPlace(e.who, true);
       spawnImpactSpark(e.who, { crit: !!e.crit, super: (e.eff > 1) });
       pushPvpLog(eventText(e));
-      delay = e.crit ? 560 : 440;
+      delay = e.crit ? 760 : 640;
     } else if (e.t === "faint") {
-      updatePvpBattlerInPlace(e.who, false);
+      // Make sure the HP bar is fully drained to 0 and let that animation finish,
+      // THEN fade the sprite out — so the faint never happens before the bar empties.
+      paintHpBar((PVP.state.a || []).concat(PVP.state.b || []).filter(Boolean).find(x => x.name === e.who) || {}, 0);
       pushPvpLog(eventText(e));
-      delay = 760;
+      const faintName = e.who;
+      setTimeout(() => fadeFaint(faintName), 420); // wait for the bar drain, then fade
+      delay = 1100;
     } else if (e.t === "heal" || e.t === "recoil" || e.t === "residual" || e.t === "status") {
       updatePvpBattlerInPlace(e.who, false);
       pushPvpLog(eventText(e));
-      delay = 600;
+      delay = 720;
     } else if (e.t === "miss" || e.t === "immune") {
       pushPvpLog(eventText(e));
-      delay = 560;
+      delay = 680;
     } else if (e.t === "stat") {
       // A buff/nerf landed — refresh the stat-stage badges under the HP bar and
       // pulse the changed one so it's noticeable.
       updatePvpBattlerInPlace(e.who, false);
       pulseStatBadge(e.who, e.stat, e.dir);
       pushPvpLog(eventText(e));
-      delay = 600;
+      delay = 720;
     } else if (e.t === "switch" || e.t === "sendin") {
       // A switch is its own action: 'switch' clears the box and the paired 'sendin'
       // appends under it. A lone 'sendin' (faint replacement) starts fresh.
       renderPvpStage();
       pushPvpLog(eventText(e), e.t === "switch");
-      delay = 650;
+      delay = 760;
     } else {
       // stat changes, msg events, etc. — append to the current action's log.
       pushPvpLog(eventText(e));
@@ -891,6 +1024,7 @@ async function commitReplacement(actorIdx, benchIdx) {
       showBattlePicker();
       document.getElementById("battleControls").innerHTML =
         `<div class="move-prompt">${t("pvp_waiting_replace")}</div>`;
+      startReplaceWatchdog();
       return;
     }
     promptPvpMove();
@@ -970,7 +1104,18 @@ function updatePvpBattlerInPlace(name, flash) {
   }
   const mon = document.getElementById("fieldmon-" + b._uid);
   if (mon && flash) { mon.classList.add("hit"); setTimeout(() => mon.classList.remove("hit"), 380); }
-  if (b.fainted && mon) mon.classList.add("fainted");
+  // NOTE: we intentionally do NOT add the 'fainted' class here. The faint fade is
+  // sequenced by the step loop (fadeFaint) AFTER the HP bar has drained to 0, so a
+  // KO never visually happens before the bar empties.
+}
+
+// Fade a fainted Pokémon out, by name (called after its HP bar has drained to 0).
+function fadeFaint(name) {
+  if (!PVP.state) return;
+  const b = [...(PVP.state.a || []), ...(PVP.state.b || [])].filter(Boolean).find(x => x.name === name);
+  if (!b) return;
+  const mon = document.getElementById("fieldmon-" + b._uid);
+  if (mon) mon.classList.add("fainted");
 }
 
 // The battle log's `move` event carries the move's DISPLAY name, not its key,
@@ -1048,6 +1193,8 @@ async function quitPvp() {
   PVP.over = true;
   _pvpEntered = false;
   if (PVP_PICK.timer) { clearInterval(PVP_PICK.timer); PVP_PICK.timer = null; }
+  if (PVP._pickWatchdog) { clearInterval(PVP._pickWatchdog); PVP._pickWatchdog = null; }
+  if (PVP._replaceWatch) { clearInterval(PVP._replaceWatch); PVP._replaceWatch = null; }
   if (PVP._pollTimer) { clearInterval(PVP._pollTimer); PVP._pollTimer = null; }
   if (PVP._matchPoll) { clearInterval(PVP._matchPoll); PVP._matchPoll = null; }
   if (PVP._heartbeat) { clearInterval(PVP._heartbeat); PVP._heartbeat = null; }

@@ -96,6 +96,17 @@ Deno.serve(async (req: Request) => {
     const seed = Math.floor(Math.random() * 0x7fffffff);
     const deadline = new Date(Date.now() + 60 * 1000).toISOString(); // 60s picking timer
 
+    // Look up both players' usernames (admin client bypasses RLS). Fall back to a
+    // friendly default if a profile row doesn't exist yet.
+    const { data: profs } = await admin
+      .from("profiles").select("user_id, username").in("user_id", [opp.user_id, me]);
+    const nameOf = (uid: string) => {
+      const p = (profs || []).find((r: any) => r.user_id === uid);
+      return (p && p.username) || ("Trainer" + String(uid).slice(0, 4));
+    };
+    const nameA = nameOf(opp.user_id); // player_a = opponent (waited first)
+    const nameB = nameOf(me);          // player_b = me
+
     // Create the match in 'picking' status.
     const { data: match, error: insErr } = await admin
       .from("matches")
@@ -112,6 +123,8 @@ Deno.serve(async (req: Request) => {
         picks_b: null,
         picking_deadline: deadline,
         status: "picking",
+        name_a: nameA,
+        name_b: nameB,
       })
       .select("id")
       .single();
@@ -120,7 +133,7 @@ Deno.serve(async (req: Request) => {
     // Remove BOTH players from the queue.
     await admin.from("matchmaking_queue").delete().in("user_id", [opp.user_id, me]);
 
-    return json({ ok: true, matched: true, matchId: match.id, side: "b", seed, status: "picking" });
+    return json({ ok: true, matched: true, matchId: match.id, side: "b", seed, status: "picking", nameA, nameB });
   }
 
   // 2. Nobody waiting → join the queue.

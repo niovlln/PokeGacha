@@ -244,7 +244,16 @@ function authMarkup(ctx) {
             <div style="font-size:11px;color:var(--accent);margin-top:8px;line-height:1.5">${svgIcon("alert","var(--accent)",13)} ${reason}</div>`;
   }
   if (typeof currentUser !== 'undefined' && currentUser) {
+    const uname = (typeof currentUsername !== 'undefined' && currentUsername) ? currentUsername : '';
     return `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:3px">${t('username_label')}</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        <input id="usernameInput_${ctx}" class="feedback-input" type="text" maxlength="20"
+               value="${uname.replace(/"/g, '&quot;')}" placeholder="${t('username_placeholder')}"
+               style="flex:1;margin:0" autocomplete="off">
+        <button class="lang-btn active" style="flex:0 0 auto;padding:8px 14px" onclick="doSaveUsername('${ctx}')">${t('username_save')}</button>
+      </div>
+      <div id="usernameMsg_${ctx}" style="font-size:11px;color:#4ade80;min-height:14px;margin-bottom:10px"></div>
       <div style="font-size:13px;color:var(--text);margin-bottom:4px">${t('logged_in_as')}</div>
       <div style="font-size:13px;color:var(--gold);font-weight:700;margin-bottom:10px;word-break:break-all">${currentUser.email || ''}</div>
       <div style="font-size:11px;color:#4ade80;margin-bottom:10px;display:flex;align-items:center;gap:5px">${svgIcon('check', '#4ade80', 13)} ${t('cloud_synced')}</div>
@@ -408,6 +417,24 @@ function _authInputs(ctx) {
 function _authMsg(ctx, text, ok) {
   const m = document.getElementById('authMsg_' + ctx);
   if (m) { m.textContent = text; m.style.color = ok ? '#4ade80' : 'var(--accent)'; }
+}
+
+// ---- Save username (profile) ----
+async function doSaveUsername(ctx) {
+  const input = document.getElementById('usernameInput_' + ctx);
+  const msg = document.getElementById('usernameMsg_' + ctx);
+  if (!input) return;
+  const name = input.value;
+  if (typeof saveUsername !== 'function') return;
+  if (msg) { msg.style.color = 'var(--muted)'; msg.textContent = t('auth_working'); }
+  const res = await saveUsername(name);
+  if (res && res.ok) {
+    if (msg) { msg.style.color = '#4ade80'; msg.textContent = t('username_saved'); }
+    toast(t('username_saved'));
+    updateAuthUI();
+  } else {
+    if (msg) { msg.style.color = 'var(--accent)'; msg.textContent = (res && res.error === 'empty') ? t('username_empty') : t('username_error'); }
+  }
 }
 
 async function doSignIn(ctx) {

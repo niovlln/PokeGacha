@@ -73,13 +73,24 @@ Deno.serve(async (req: Request) => {
   const myTeam = mySide === "a" ? (match.team_a || []) : (match.team_b || []);
   const myResolved = resolvePicks(myTeam, picks);
 
-  // Store MY picks (private — opponent never receives this).
+  // Store MY picks (private — opponent never receives this). Use .select() so we get
+  // the committed row back (read-your-write), guaranteeing my pick is visible.
   const pickCol = mySide === "a" ? "picks_a" : "picks_b";
-  const { error: upErr } = await admin.from("matches").update({ [pickCol]: myResolved }).eq("id", matchId);
+  const { data: afterMine, error: upErr } = await admin
+    .from("matches").update({ [pickCol]: myResolved }).eq("id", matchId).select().single();
   if (upErr) return json({ ok: false, error: "save_picks_failed", detail: upErr.message }, 500);
 
-  // Re-read to see if the opponent has also picked (or if the deadline passed).
-  const { data: m2 } = await admin.from("matches").select("*").eq("id", matchId).single();
+  // Decide whether to build. Start from the row returned by my own write (which
+  // definitely contains my pick), then re-read once to pick up the opponent's pick
+  // if it landed. We OR-merge so a read-replica lag can't drop my own pick and make
+  // BOTH players think they're still waiting (the deadlock that left one stuck).
+  let m2 = afterMine;
+  const { data: fresh } = await admin.from("matches").select("*").eq("id", matchId).single();
+  if (fresh) {
+    m2 = fresh;
+    // Guarantee my just-written pick is reflected even under replica lag.
+    if (!m2[pickCol]) m2[pickCol] = myResolved;
+  }
   if (!m2 || m2.status !== "picking") return json({ ok: true, started: true });
 
   const deadlinePassed = m2.picking_deadline && new Date(m2.picking_deadline).getTime() <= Date.now();
