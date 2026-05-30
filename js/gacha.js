@@ -170,7 +170,7 @@ async function triggerEncounter() {
   // Populate overlay
   document.getElementById('wildSprite').src = spriteAnimated(poke.id);
   document.getElementById('wildName').textContent = t('wild_appeared', { name: poke.name.toUpperCase() });
-  document.getElementById('wildRarity').textContent = rarityStars(poke.rarity);
+  document.getElementById('wildRarity').innerHTML = rarityStars(poke.rarity);
   document.getElementById('wildTypes').innerHTML = poke.types.map(typeBadge).join(' ');
 
   // Captured/collected indicator: tell the player if this Pokémon is already

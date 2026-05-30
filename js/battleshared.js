@@ -7,7 +7,7 @@ function hpPlate(b, side) {
   const statusTag = b.status ? `<span class="status-tag ${b.status}">${b.status.toUpperCase()}</span>` : '';
   const types = (b.types || []).map(ty => `<span class="tbadge plate-type" style="background:${TC[ty] || '#888'}">${ty}</span>`).join('');
   return `
-    <div class="hp-plate ${side}">
+    <div class="hp-plate ${side}" id="hpplate-${b._uid}">
       <div class="hp-plate-top">
         <span class="hp-plate-name">${b.name}</span>
         <span class="hp-plate-lv">Lv${b.level}</span>
@@ -16,7 +16,28 @@ function hpPlate(b, side) {
       <div class="plate-types">${types}</div>
       <div class="hp-bar-wrap"><div class="hp-bar" style="width:${pct}%;background:${col}"></div></div>
       <div class="hp-text">${b.hp}/${b.maxHp}</div>
+      <div class="stat-stages" id="statstages-${b._uid}">${statStageBadges(b)}</div>
     </div>`;
+}
+
+// Compact icons under the HP bar showing the Pokémon's current stat-stage buffs/nerfs.
+// One badge per non-zero stat; green ↑ for buffs, red ↓ for nerfs, arrows = magnitude.
+function statStageBadges(b) {
+  const stages = (b && b.stages) || {};
+  const order = [
+    ['atk', 'ATK'], ['def', 'DEF'], ['spAtk', 'SpA'], ['spDef', 'SpD'],
+    ['spd', 'SPE'], ['acc', 'ACC'], ['eva', 'EVA'],
+  ];
+  const out = [];
+  for (const [key, label] of order) {
+    const v = stages[key] || 0;
+    if (!v) continue;
+    const up = v > 0;
+    const mag = Math.min(3, Math.abs(v));            // cap arrow count for layout
+    const arrows = (up ? '\u2191' : '\u2193').repeat(mag);
+    out.push(`<span class="stat-stage ${up ? 'up' : 'down'}" title="${label} ${v > 0 ? '+' + v : v}">${label}${arrows}</span>`);
+  }
+  return out.join('');
 }
 
 function battlerSprite(b, side) {

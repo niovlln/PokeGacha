@@ -17,6 +17,7 @@ const PVP = {
   awaitingResolve: false,
   over: false,
   searching: false,
+  _animating: false, // a turn's log/animation is currently playing
   pendingActions: [], // my actions being assembled this turn
 };
 
@@ -241,6 +242,11 @@ async function enterMatch(matchId, side) {
   PVP.over = false;
   PVP.awaitingResolve = false;
   PVP.pendingActions = [];
+  // Clear transient per-match flags so a previous match's state can't leak in.
+  PVP._lastReplaceSig = null;
+  PVP._waitingForOpponentReplace = false;
+  PVP._targeting = null;
+  PVP._animating = false;
 
   // Load the authoritative match row.
   const { data: m, error } = await sb.from("matches").select("*").eq("id", matchId).single();
@@ -259,8 +265,7 @@ async function enterMatch(matchId, side) {
   subscribeToMatch(matchId);
 
   renderPvpStage();
-  pushPvpLog(t("battle_start_msg"));
-  promptPvpMove();
+  promptPvpMove();   // opens the move picker (battle log shows once a turn resolves)
 }
 
 // Explicit forfeit during a live match (picking or battle): tell the server I concede,
@@ -367,9 +372,28 @@ function startMatchPoll(matchId) {
 // ---- Realtime: a match row changed (opponent submitted, or turn resolved) ----
 function onMatchUpdate(m) {
   if (!m || m.id !== PVP.matchId) return;
+  if (PVP.over) return; // battle already concluded; ignore late updates
 
-  // Match ended (KO, forfeit, disconnect, or timeout) — show the result once.
-  if (m.status === "finished" && !PVP.over) {
+  const finished = m.status === "finished";
+
+  // A new turn resolved (server's turn_number advanced past ours). Animate it —
+  // if this same update also marks the match finished, the animation ends in endPvp,
+  // so the final KO plays out before the result shows.
+  if (m.turn_number > PVP.turnNumber) {
+    PVP.turnNumber = m.turn_number;
+    PVP.awaitingResolve = false;
+    const newState = m.state;
+    const log = m.last_log || [];
+    const needReplace = (m.pending && m.pending.needReplace) || { a: [], b: [] };
+    animatePvpTurn(newState, log, finished, m.winner, needReplace);
+    return;
+  }
+
+  // Match ended with NO new turn to animate (forfeit, disconnect, timeout, or a
+  // finish we've already animated past). Show the result directly, once — but not
+  // while a turn is still animating; that playback ends the battle itself.
+  if (finished) {
+    if (PVP._animating) return; // the in-progress animation will call endPvp
     PVP.state = (m.state && m.state.a && m.state.b) ? m.state : PVP.state;
     endPvp(m.winner, m.end_reason);
     return;
@@ -378,18 +402,6 @@ function onMatchUpdate(m) {
   // Picking phase just completed → battle built → enter it.
   if (m.status === "active" && !_pvpEntered) {
     enterMatch(m.id, PVP.mySide);
-    return;
-  }
-
-  // A turn resolved if the server's turn_number advanced past ours.
-  if (m.turn_number > PVP.turnNumber) {
-    PVP.turnNumber = m.turn_number;
-    PVP.awaitingResolve = false;
-    const newState = m.state;
-    const log = m.last_log || [];
-    const needReplace = (m.pending && m.pending.needReplace) || { a: [], b: [] };
-    // Animate the resolved turn from MY perspective, then continue or end.
-    animatePvpTurn(newState, log, m.status === "finished", m.winner, needReplace);
     return;
   }
 
@@ -408,28 +420,31 @@ function onMatchUpdate(m) {
 
     PVP.state = m.state;
     const myNeed = (m.pending && m.pending.needReplace && m.pending.needReplace[PVP.mySide]) || [];
-    // Re-render the battlefield with the updated state (opponent's new mon now shows).
+    // Re-render the battlefield with the updated state (the new mon now shows).
     renderPvpStage();
-    lastLog.forEach(e => pushPvpLog(eventText(e)));
-    // If I still owe a replacement, keep my replacement prompt; if I was waiting and
-    // it's now my move (no one owes a replacement), let me act.
-    if (!myNeed.length && !PVP.awaitingResolve && !PVP._targeting && !PVP.over) {
-      if (PVP._waitingForOpponentReplace) {
-        PVP._waitingForOpponentReplace = false;
-        promptPvpMove();
-      }
+    if (myNeed.length) {
+      // I still owe a replacement — go straight to the bench picker.
+      promptReplacement(myNeed);
+    } else if (!PVP.awaitingResolve && !PVP._targeting && !PVP.over && PVP._waitingForOpponentReplace) {
+      // Opponent just sent in and now it's my move — show the picker directly. The
+      // new foe is already on the field; we don't flash the log box for a switch.
+      PVP._waitingForOpponentReplace = false;
+      promptPvpMove();
     }
   }
 }
 
 // ---- Rendering (per-perspective: near = my side, far = foe) ----
-function renderPvpStage() {
+function renderPvpStage(keepVisibleNames) {
   if (!PVP.state || !PVP.state.a || !PVP.state.b) return; // nothing to render yet
   let u = 0;
   [...PVP.state.a, ...PVP.state.b].forEach(b => { if (b) b._uid = u++; });
-  // Only show Pokémon still in the fight — fainted ones are removed from the scene.
-  const near = pvpNear().filter(b => b && !b.fainted);
-  const far  = pvpFar().filter(b => b && !b.fainted);
+  const keep = keepVisibleNames instanceof Set ? keepVisibleNames : null;
+  // Show Pokémon still in the fight. During a turn animation we also keep any
+  // battler that faints THIS turn so its faint-fade can play before removal.
+  const show = b => b && (!b.fainted || (keep && keep.has(b.name)));
+  const near = pvpNear().filter(show);
+  const far  = pvpFar().filter(show);
   const stage = document.getElementById("battleStage");
   stage.innerHTML = `
     <div class="battlefield">
@@ -444,13 +459,30 @@ function renderPvpStage() {
     </div>`;
 }
 
-function pushPvpLog(text) {
+function pushPvpLog(text, fresh) {
   const log = document.getElementById("battleLog");
+  if (!log) return;
+  // `fresh` starts a NEW action's log: clear the box so only the current
+  // Pokémon's action shows (it doesn't merge with the previous one).
+  if (fresh) log.innerHTML = "";
   const div = document.createElement("div");
   div.className = "log-line";
   div.textContent = text;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+}
+
+// ---- Bottom-box mode toggle: move picker vs. battle log -------------------
+// The picker (move buttons / prompts) and the log share one container. Show the
+// log only while a resolved turn animates; otherwise show the picker.
+function showBattleLog(clear) {
+  const bottom = document.getElementById("battleBottom");
+  if (bottom) bottom.classList.add("show-log");
+  if (clear) { const log = document.getElementById("battleLog"); if (log) log.innerHTML = ""; }
+}
+function showBattlePicker() {
+  const bottom = document.getElementById("battleBottom");
+  if (bottom) bottom.classList.remove("show-log");
 }
 
 function renderSearching(msg) {
@@ -465,6 +497,7 @@ function renderSearching(msg) {
 // ---- My move selection (only for MY living Pokémon) ----
 function promptPvpMove() {
   if (PVP.over) return;
+  showBattlePicker();        // turn over — show the move picker again
   PVP.pendingActions = [];
   promptPvpActor(0);
 }
@@ -570,16 +603,44 @@ function commitPvpSwitch(actorIdx, benchIdx) {
   promptPvpActor(actorIdx + 1);
 }
 
+// Status-move effects that act on the USER or its own side — these need no target
+// prompt (we auto-target the user's own slot). Everything else that's a status move
+// (Disable, String Shot, Thunder Wave, Sleep Powder, Growl, etc.) targets a FOE.
+const SELF_STATUS_EFFECTS = new Set([
+  "atk_up", "atk_up2", "def_up", "def_up2", "spd_up2", "spdef_up2", "atk_spatk_up",
+  "crit_up", "evasion_up", "evasion_up2", "heal50", "rest", "reflect", "lightscreen",
+  "mist", "haze", "substitute", "conversion", "transform", "noop", "recharge",
+  "bide", "counter", "mimic", "metronome", "mirror",
+]);
+
+// Returns 'self' (acts on the user — no target needed) or 'foe' (needs a foe target).
+function moveTargetKind(md) {
+  if (!md) return "foe";
+  const effs = Array.isArray(md.effect) ? md.effect : [md.effect];
+  // Damaging moves always target a foe.
+  if (md.power > 0) return "foe";
+  // Among 0-power moves: self/own-side buffs are 'self'; the rest hit a foe.
+  if (effs.some(e => e && SELF_STATUS_EFFECTS.has(e))) return "self";
+  return "foe";
+}
+
 function choosePvpMove(actorIdx, moveKey) {
   const md = moveData(moveKey) || {};
-  // Targets: all living Pokémon on both canonical sides.
-  const targets = [];
-  pvpFar().forEach((b, i) => { if (b && !b.fainted) targets.push({ side: PVP.foeSide, idx: i, b, kind: "foe" }); });
-  pvpNear().forEach((b, i) => { if (b && !b.fainted) targets.push({ side: PVP.mySide, idx: i, b, kind: "ally" }); });
+  const kind = moveTargetKind(md);
 
-  if (md.category === "status" || !md.power) { commitPvpMove(actorIdx, moveKey, PVP.foeSide, targets.find(x=>x.kind==='foe')?.idx ?? 0); return; }
-  if (targets.length === 1) { commitPvpMove(actorIdx, moveKey, targets[0].side, targets[0].idx); return; }
-  enterPvpTargetMode(actorIdx, moveKey, targets);
+  // Self / own-side moves (buffs, heals, screens) auto-target the user's own slot.
+  if (kind === "self") {
+    commitPvpMove(actorIdx, moveKey, PVP.mySide, actorIdx);
+    return;
+  }
+
+  // Foe-targeting moves (damage AND status like Disable/String Shot/Thunder Wave):
+  // gather living foes; if only one, auto-target it, otherwise prompt for which foe.
+  const foes = [];
+  pvpFar().forEach((b, i) => { if (b && !b.fainted) foes.push({ side: PVP.foeSide, idx: i, b, kind: "foe" }); });
+  if (!foes.length) { commitPvpMove(actorIdx, moveKey, PVP.foeSide, 0); return; } // safety
+  if (foes.length === 1) { commitPvpMove(actorIdx, moveKey, foes[0].side, foes[0].idx); return; }
+  enterPvpTargetMode(actorIdx, moveKey, foes);
 }
 
 function enterPvpTargetMode(actorIdx, moveKey, targets) {
@@ -593,7 +654,7 @@ function enterPvpTargetMode(actorIdx, moveKey, targets) {
   controls.innerHTML = `
     <div class="move-prompt">${t("tap_target")} <b>${md.name}</b></div>
     <div class="move-buttons">
-      ${targets.map(tg => `<button class="battle-move-btn target-btn ${tg.kind}" onclick="pickPvpTarget('${tg.side}', ${tg.idx})">
+      ${targets.map(tg => `<button class="battle-move-btn target-btn glow ${tg.kind}" onclick="pickPvpTarget('${tg.side}', ${tg.idx})">
         <span class="bmb-name">${tg.b.name}</span>
         <span class="bmb-meta">${tg.kind === "ally" ? t("tgt_ally") : t("tgt_foe")} · HP ${tg.b.hp}/${tg.b.maxHp}</span>
       </button>`).join("")}
@@ -653,10 +714,62 @@ async function submitPvpTurn() {
 // ---- Animate a resolved turn (server log) from my perspective ----
 function animatePvpTurn(newState, log, finished, winner, needReplace) {
   PVP.state = newState;
+  PVP._animating = true;   // block finish-updates from preempting this playback
   const events = (log || []).slice();
+  // Both players have picked — flip the bottom box from the move picker to the
+  // battle log, which now fills line-by-line in sync with the attack animations.
+  showBattleLog(true);
+  // Battlers that faint this turn should start visible, then fade on their event.
+  const faintNames = new Set(events.filter(e => e.t === "faint").map(e => e.who));
+
+  // ---- HP drain setup ----
+  // The state we render is POST-turn (final HP). To animate bars draining hit by
+  // hit, reconstruct each battler's PRE-turn HP by reversing the log's HP deltas,
+  // then track a running "display HP" we step forward as events play.
+  const all = [...(newState.a || []), ...(newState.b || []), ...(newState.benchA || []), ...(newState.benchB || [])].filter(Boolean);
+  const byName = {};
+  all.forEach(b => { byName[b.name] = b; b._displayHp = b.hp; });
+  // Walk the log to find total delta per battler, then set start = final - delta.
+  const delta = {};
+  for (const e of events) {
+    if (!e.who) continue;
+    // Substitute-absorbed hits (sub:1) don't reduce the Pokémon's real HP.
+    if (e.t === "damage" && !e.sub) delta[e.who] = (delta[e.who] || 0) - (e.amt || 0);
+    else if (e.t === "heal") delta[e.who] = (delta[e.who] || 0) + (e.amt || 0);
+    else if (e.t === "recoil" || e.t === "residual") delta[e.who] = (delta[e.who] || 0) - (e.amt || 0);
+  }
+  for (const name in byName) {
+    const b = byName[name];
+    const d = delta[name] || 0;
+    // start = final - d, clamped to [0, max]. (final = b.hp already.)
+    b._displayHp = Math.max(0, Math.min(b.maxHp, b.hp - d));
+  }
+
+  // Render the post-turn lineup once up front (keeping this-turn faints visible).
+  // This assigns each battler a _uid and creates the field-mon / hp-plate DOM
+  // elements the animations target; without it, fieldMonByName() can't resolve
+  // elements and nothing animates.
+  renderPvpStage(faintNames);
+  // Paint every HP bar at its PRE-turn value so the first hit visibly drains it.
+  [...(PVP.state.a || []), ...(PVP.state.b || [])].forEach(b => { if (b) paintHpBar(b, b._displayHp); });
+  // Battlers that faint this turn render with the 'fainted' class (post-turn state),
+  // which would hide them immediately. Strip it so they appear alive now and fade
+  // when their faint event fires.
+  if (faintNames.size) {
+    [...(PVP.state.a || []), ...(PVP.state.b || [])].forEach(b => {
+      if (b && faintNames.has(b.name)) {
+        const el = document.getElementById("fieldmon-" + b._uid);
+        if (el) el.classList.remove("fainted");
+      }
+    });
+  }
   let i = 0;
   const step = () => {
+    // If the battle ended (e.g. a finished-match update arrived mid-animation),
+    // stop animating — endPvp already showed the result; don't reflash the log.
+    if (PVP.over) { PVP._animating = false; return; }
     if (i >= events.length) {
+      PVP._animating = false;   // playback complete
       renderPvpStage();
       if (finished) { endPvp(winner); return; }
       // A1: if any of MY active slots fainted and I have bench, send in a replacement first.
@@ -667,6 +780,7 @@ function animatePvpTurn(newState, log, finished, winner, needReplace) {
       // (the turn cycle isn't complete). The Realtime replacement update releases me.
       if (theirs.length) {
         PVP._waitingForOpponentReplace = true;
+        showBattlePicker();
         document.getElementById("battleControls").innerHTML =
           `<div class="move-prompt">${t("pvp_waiting_replace")}</div>`;
         return;
@@ -675,10 +789,63 @@ function animatePvpTurn(newState, log, finished, winner, needReplace) {
       return;
     }
     const e = events[i++];
-    pushPvpLog(eventText(e));
-    if (e.t === "damage") refreshPvpBattler(e.who, true);
-    else if (e.t === "faint" || e.t === "heal" || e.t === "recoil" || e.t === "residual" || e.t === "status") refreshPvpBattler(e.who, false);
-    setTimeout(step, 650);
+
+    // Advance the running "display HP" for HP-changing events, so the bar
+    // animates from its current value to the new one (CSS transition does the drain).
+    if (e.who) {
+      const tgt = [...(PVP.state.a || []), ...(PVP.state.b || [])].filter(Boolean).find(x => x.name === e.who);
+      if (tgt && tgt._displayHp != null) {
+        if ((e.t === "damage" && !e.sub) || e.t === "recoil" || e.t === "residual") tgt._displayHp = Math.max(0, tgt._displayHp - (e.amt || 0));
+        else if (e.t === "heal") tgt._displayHp = Math.min(tgt.maxHp, tgt._displayHp + (e.amt || 0));
+        else if (e.t === "faint") tgt._displayHp = 0;
+      }
+    }
+
+    let delay = 650;
+    if (e.t === "move") {
+      // A new action begins — clear the box so this Pokémon's action shows alone,
+      // then announce the move AS the attacker lunges/casts (same beat as the motion).
+      const cat = moveCategoryByName(e.move);
+      const contact = cat !== "status";
+      animateAttacker(e.who, contact);
+      pushPvpLog(eventText(e), true);
+      delay = contact ? 240 : 520;
+    } else if (e.t === "damage") {
+      // Follow-up of the current action — append under the move line. The damage
+      // line lands the instant the hit connects (spark + flash).
+      updatePvpBattlerInPlace(e.who, true);
+      spawnImpactSpark(e.who, { crit: !!e.crit, super: (e.eff > 1) });
+      pushPvpLog(eventText(e));
+      delay = e.crit ? 560 : 440;
+    } else if (e.t === "faint") {
+      updatePvpBattlerInPlace(e.who, false);
+      pushPvpLog(eventText(e));
+      delay = 760;
+    } else if (e.t === "heal" || e.t === "recoil" || e.t === "residual" || e.t === "status") {
+      updatePvpBattlerInPlace(e.who, false);
+      pushPvpLog(eventText(e));
+      delay = 600;
+    } else if (e.t === "miss" || e.t === "immune") {
+      pushPvpLog(eventText(e));
+      delay = 560;
+    } else if (e.t === "stat") {
+      // A buff/nerf landed — refresh the stat-stage badges under the HP bar and
+      // pulse the changed one so it's noticeable.
+      updatePvpBattlerInPlace(e.who, false);
+      pulseStatBadge(e.who, e.stat, e.dir);
+      pushPvpLog(eventText(e));
+      delay = 600;
+    } else if (e.t === "switch" || e.t === "sendin") {
+      // A switch is its own action: 'switch' clears the box and the paired 'sendin'
+      // appends under it. A lone 'sendin' (faint replacement) starts fresh.
+      renderPvpStage();
+      pushPvpLog(eventText(e), e.t === "switch");
+      delay = 650;
+    } else {
+      // stat changes, msg events, etc. — append to the current action's log.
+      pushPvpLog(eventText(e));
+    }
+    setTimeout(step, delay);
   };
   step();
 }
@@ -689,6 +856,7 @@ function promptReplacement(slots) {
   const bench = pvpBench();
   const options = bench.map((b, i) => ({ b, i })).filter(o => o.b && !o.b.fainted);
   if (!options.length) { promptPvpMove(); return; } // safety: nothing to send in
+  showBattlePicker();        // surface the picker box for the replacement choice
   clearActiveActor();
   const controls = document.getElementById("battleControls");
   controls.innerHTML = `
@@ -702,6 +870,7 @@ function promptReplacement(slots) {
 }
 
 async function commitReplacement(actorIdx, benchIdx) {
+  showBattlePicker();
   document.getElementById("battleControls").innerHTML =
     `<div class="move-prompt">${t("pvp_sending_in")}</div>`;
   try {
@@ -719,6 +888,7 @@ async function commitReplacement(actorIdx, benchIdx) {
     const theirs = (data.needReplace && data.needReplace[PVP.foeSide]) || [];
     if (theirs.length) {
       PVP._waitingForOpponentReplace = true;
+      showBattlePicker();
       document.getElementById("battleControls").innerHTML =
         `<div class="move-prompt">${t("pvp_waiting_replace")}</div>`;
       return;
@@ -729,20 +899,133 @@ async function commitReplacement(actorIdx, benchIdx) {
   }
 }
 
-function refreshPvpBattler(name, hit) {
-  const all = [...PVP.state.a, ...PVP.state.b].filter(Boolean);
+// Pulse the stat-stage badge that just changed, so a buff/nerf is noticeable.
+function pulseStatBadge(name, stat, dir) {
+  if (!PVP.state || !name) return;
+  const all = [...(PVP.state.a || []), ...(PVP.state.b || [])].filter(Boolean);
   const b = all.find(x => x.name === name);
   if (!b) return;
-  // Re-render the whole stage is simplest & correct after each impactful event.
-  renderPvpStage();
+  // Engine emits lowercase stat keys; map to the badge labels used in statStageBadges.
+  const labelMap = { atk: "ATK", def: "DEF", spatk: "SpA", spdef: "SpD", spd: "SPE", acc: "ACC", eva: "EVA" };
+  const label = labelMap[(stat || "").toLowerCase()];
+  if (!label) return;
+  const row = document.getElementById("statstages-" + b._uid);
+  if (!row) return;
+  const badge = Array.from(row.querySelectorAll(".stat-stage")).find(el => el.textContent.startsWith(label));
+  if (badge) {
+    badge.classList.remove("pulse");
+    void badge.offsetWidth; // restart the animation
+    badge.classList.add("pulse");
+    setTimeout(() => badge.classList.remove("pulse"), 600);
+  }
+}
+
+// Paint a battler's HP plate (bar width/color + text) to a specific HP value.
+// CSS transition on .hp-bar animates the width change smoothly.
+function paintHpBar(b, hp) {
+  const plate = document.getElementById("hpplate-" + b._uid);
+  if (!plate) return;
+  const shown = Math.max(0, Math.min(b.maxHp, Math.round(hp)));
+  const pct = Math.max(0, Math.round((shown / b.maxHp) * 100));
+  const col = pct > 50 ? "#4ade80" : pct > 20 ? "#fbbf24" : "#ef4444";
+  const bar = plate.querySelector(".hp-bar");
+  const txt = plate.querySelector(".hp-text");
+  if (bar) { bar.style.width = pct + "%"; bar.style.background = col; }
+  if (txt) txt.textContent = shown + "/" + b.maxHp;
+}
+
+// Update a single battler's HP plate + flash in place (no full stage rebuild),
+// so an in-progress attack lunge isn't interrupted.
+function updatePvpBattlerInPlace(name, flash) {
+  if (!PVP.state) return;
+  const all = [...(PVP.state.a || []), ...(PVP.state.b || [])].filter(Boolean);
+  const b = all.find(x => x.name === name);
+  if (!b) return;
+  const plate = document.getElementById("hpplate-" + b._uid);
+  if (plate) {
+    // Drain (or refill) the bar from its current display value to the post-event
+    // value. We can't know the exact per-event running HP from here, so the caller
+    // (the step loop) advances _displayHp; this just paints to it.
+    paintHpBar(b, (b._displayHp != null) ? b._displayHp : b.hp);
+    const top = plate.querySelector(".hp-plate-top");
+    if (top) {
+      const existing = top.querySelector(".status-tag");
+      if (b.status && !existing) {
+        const s = document.createElement("span");
+        s.className = "status-tag " + b.status;
+        s.textContent = b.status.toUpperCase();
+        top.appendChild(s);
+      } else if (b.status && existing) {
+        existing.className = "status-tag " + b.status;
+        existing.textContent = b.status.toUpperCase();
+      } else if (!b.status && existing) {
+        existing.remove();
+      }
+    }
+    // Refresh the stat-stage badges (buffs/nerfs) under the HP bar.
+    const stagesRow = plate.querySelector(".stat-stages");
+    if (stagesRow && typeof statStageBadges === "function") {
+      stagesRow.innerHTML = statStageBadges(b);
+    }
+  }
   const mon = document.getElementById("fieldmon-" + b._uid);
-  if (mon && hit) { mon.classList.add("hit"); setTimeout(() => mon.classList.remove("hit"), 380); }
+  if (mon && flash) { mon.classList.add("hit"); setTimeout(() => mon.classList.remove("hit"), 380); }
+  if (b.fainted && mon) mon.classList.add("fainted");
+}
+
+// The battle log's `move` event carries the move's DISPLAY name, not its key,
+// so resolve category by matching the name across the move table.
+function moveCategoryByName(name) {
+  if (!name || typeof MOVES === "undefined") return null;
+  for (const k in MOVES) {
+    const m = MOVES[k];
+    if (m && m.name === name) return m.category;
+  }
+  return null;
+}
+
+// ---- Attack animations -----------------------------------------------------
+// Find the on-field DOM element for a battler by its (unique) display name.
+function fieldMonByName(name) {
+  if (!PVP.state) return null;
+  const all = [...(PVP.state.a || []), ...(PVP.state.b || [])].filter(Boolean);
+  const b = all.find(x => x.name === name);
+  if (!b) return null;
+  return document.getElementById("fieldmon-" + b._uid);
+}
+
+// Is this battler on MY (near/player) side of the field?
+function isNearName(name) {
+  const near = pvpNear();
+  return near.some(x => x && x.name === name);
+}
+
+// Lunge the attacker toward its target. `contact` true = physical lunge; false = cast pulse.
+function animateAttacker(attackerName, contact) {
+  const el = fieldMonByName(attackerName);
+  if (!el) return;
+  const cls = contact ? "attacking" : "casting";
+  el.classList.remove("attacking", "casting");
+  void el.offsetWidth; // restart animation if re-triggered
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), contact ? 440 : 520);
+}
+
+// Spawn a one-shot impact spark on the defender's sprite.
+function spawnImpactSpark(defenderName, opts) {
+  const el = fieldMonByName(defenderName);
+  if (!el) return;
+  const spark = document.createElement("div");
+  spark.className = "impact-spark" + (opts && opts.crit ? " crit" : "") + (opts && opts.super ? " super" : "");
+  el.appendChild(spark);
+  setTimeout(() => spark.remove(), 460);
 }
 
 // ---- End / cleanup ----
 function endPvp(winner, reason) {
   if (PVP.over) return;
   PVP.over = true;
+  PVP._animating = false;
   if (PVP._heartbeat) { clearInterval(PVP._heartbeat); PVP._heartbeat = null; }
   const iWon = winner === PVP.mySide;
   const draw = winner === "draw";
@@ -752,7 +1035,7 @@ function endPvp(winner, reason) {
   if (reason === "disconnect") sub = iWon ? t("pvp_won_disconnect") : t("pvp_lost_disconnect");
   else if (reason === "forfeit") sub = iWon ? t("pvp_won_forfeit") : t("pvp_lost_forfeit");
   else if (reason === "timeout") sub = iWon ? t("pvp_won_timeout") : t("pvp_lost_timeout");
-  pushPvpLog(headline + (sub ? " — " + sub : ""));
+  showBattlePicker();   // reveal the controls box for the result + Done button
   document.getElementById("battleControls").innerHTML = `
     <div class="battle-result ${draw ? "" : iWon ? "win" : "lose"}">
       ${headline}${sub ? `<div style="font-size:11px;opacity:.8;margin-top:4px">${sub}</div>` : ""}
